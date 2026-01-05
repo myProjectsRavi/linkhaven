@@ -1,62 +1,180 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Plus, Menu, LogOut, UploadCloud, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Search, Plus, Menu, LogOut, UploadCloud, AlertTriangle, Tag, Download, Loader } from 'lucide-react';
 import { Folder, Bookmark, ModalType } from './types';
 import { Sidebar } from './components/Sidebar';
 import { BookmarkGrid } from './components/BookmarkGrid';
 import { Modal } from './components/Modal';
 import { LockScreen } from './components/LockScreen';
 import { Toast } from './components/Toast';
+import { TagInput } from './components/TagInput';
+import { BookmarkletModal } from './components/BookmarkletModal';
+import { parseImportFile } from './utils/importers';
+import { fetchUrlMetadata } from './utils/metadata';
+import { checkMultipleLinks } from './utils/linkChecker';
+import {
+  deriveKey,
+  encrypt,
+  decrypt,
+  generateSalt,
+  arrayToBase64,
+  base64ToArray,
+  isEncryptionSupported
+} from './utils/crypto';
 
 // Helper to generate IDs
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
+// Storage keys
+const STORAGE_KEYS = {
+  PIN: 'lh_pin',
+  SALT: 'lh_salt',
+  FOLDERS: 'lh_folders',
+  BOOKMARKS: 'lh_bookmarks',
+  SESSION: 'lh_session',
+  ENCRYPTED: 'lh_encrypted'
+};
+
 function App() {
   // --- Auth State ---
-  const [hasPin, setHasPin] = useState<boolean>(!!localStorage.getItem('lh_pin'));
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!!sessionStorage.getItem('lh_session'));
-  
-  // --- Data State ---
-  const [folders, setFolders] = useState<Folder[]>(() => {
-    const saved = localStorage.getItem('lh_folders');
-    return saved ? JSON.parse(saved) : [{ id: 'default', name: 'General', createdAt: Date.now() }];
-  });
+  const [hasPin, setHasPin] = useState<boolean>(!!localStorage.getItem(STORAGE_KEYS.PIN));
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!!sessionStorage.getItem(STORAGE_KEYS.SESSION));
+  const [cryptoKey, setCryptoKey] = useState<CryptoKey | null>(null);
 
-  const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => {
-    const saved = localStorage.getItem('lh_bookmarks');
-    return saved ? JSON.parse(saved) : [];
-  });
+  // --- Data State ---
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [dataLoaded, setDataLoaded] = useState(false);
 
   const [activeFolderId, setActiveFolderId] = useState<string | 'ALL'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeTag, setActiveTag] = useState<string>('');
   const [modalType, setModalType] = useState<ModalType>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
 
   // Form State
   const [newItemName, setNewItemName] = useState('');
   const [newItemUrl, setNewItemUrl] = useState('');
   const [newItemDescription, setNewItemDescription] = useState('');
+  const [newItemTags, setNewItemTags] = useState<string[]>([]);
   const [selectedFolderForAdd, setSelectedFolderForAdd] = useState<string>('');
   const [newFolderParentId, setNewFolderParentId] = useState<string>('');
-  
+
   // Edit State
   const [editingBookmarkId, setEditingBookmarkId] = useState<string | null>(null);
 
   // Import State
-  const [pendingImportData, setPendingImportData] = useState<{folders: Folder[], bookmarks: Bookmark[]} | null>(null);
+  const [pendingImportData, setPendingImportData] = useState<{ folders: Folder[], bookmarks: Bookmark[] } | null>(null);
+
+  // Health Check State
+  const [isCheckingHealth, setIsCheckingHealth] = useState(false);
+  const [healthProgress, setHealthProgress] = useState({ current: 0, total: 0 });
+
+  // Auto-fetch state
+  const [isFetchingMeta, setIsFetchingMeta] = useState(false);
+
+  // --- Load Data (with decryption) ---
+  const loadData = useCallback(async (key: CryptoKey | null) => {
+    try {
+      const isEncrypted = localStorage.getItem(STORAGE_KEYS.ENCRYPTED) === 'true';
+
+      let foldersData = localStorage.getItem(STORAGE_KEYS.FOLDERS);
+      let bookmarksData = localStorage.getItem(STORAGE_KEYS.BOOKMARKS);
+
+      if (isEncrypted && key && foldersData && bookmarksData) {
+        try {
+          foldersData = await decrypt(foldersData, key);
+          bookmarksData = await decrypt(bookmarksData, key);
+        } catch (e) {
+          console.error('Decryption failed:', e);
+          // Data might not be encrypted yet
+        }
+      }
+
+      const loadedFolders = foldersData ? JSON.parse(foldersData) : [{ id: 'default', name: 'General', createdAt: Date.now() }];
+      const loadedBookmarks = bookmarksData ? JSON.parse(bookmarksData) : [];
+
+      // Ensure tags array exists on all bookmarks
+      const normalizedBookmarks = loadedBookmarks.map((b: Bookmark) => ({
+        ...b,
+        tags: b.tags || []
+      }));
+
+      setFolders(loadedFolders);
+      setBookmarks(normalizedBookmarks);
+      setDataLoaded(true);
+    } catch (e) {
+      console.error('Failed to load data:', e);
+      setFolders([{ id: 'default', name: 'General', createdAt: Date.now() }]);
+      setBookmarks([]);
+      setDataLoaded(true);
+    }
+  }, []);
+
+  // --- Save Data (with encryption) ---
+  const saveData = useCallback(async (foldersToSave: Folder[], bookmarksToSave: Bookmark[]) => {
+    try {
+      let foldersData = JSON.stringify(foldersToSave);
+      let bookmarksData = JSON.stringify(bookmarksToSave);
+
+      if (cryptoKey && isEncryptionSupported()) {
+        foldersData = await encrypt(foldersData, cryptoKey);
+        bookmarksData = await encrypt(bookmarksData, cryptoKey);
+        localStorage.setItem(STORAGE_KEYS.ENCRYPTED, 'true');
+      }
+
+      localStorage.setItem(STORAGE_KEYS.FOLDERS, foldersData);
+      localStorage.setItem(STORAGE_KEYS.BOOKMARKS, bookmarksData);
+    } catch (e) {
+      console.error('Failed to save data:', e);
+    }
+  }, [cryptoKey]);
 
   // --- Effects ---
   useEffect(() => {
-    localStorage.setItem('lh_folders', JSON.stringify(folders));
-  }, [folders]);
+    if (dataLoaded) {
+      saveData(folders, bookmarks);
+    }
+  }, [folders, bookmarks, dataLoaded, saveData]);
 
+  // Handle URL params for bookmarklet
   useEffect(() => {
-    localStorage.setItem('lh_bookmarks', JSON.stringify(bookmarks));
-  }, [bookmarks]);
+    const params = new URLSearchParams(window.location.search);
+    const addUrl = params.get('add');
+    const addTitle = params.get('title');
+    const addDesc = params.get('desc');
+    const action = params.get('action');
+
+    if (addUrl && isAuthenticated) {
+      setNewItemUrl(decodeURIComponent(addUrl));
+      setNewItemName(addTitle ? decodeURIComponent(addTitle) : '');
+      setNewItemDescription(addDesc ? decodeURIComponent(addDesc) : '');
+      setSelectedFolderForAdd(folders[0]?.id || 'default');
+      setModalType('ADD_BOOKMARK');
+      // Clear URL params
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (action === 'add' && isAuthenticated) {
+      openAddModal();
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [isAuthenticated, folders]);
 
   // --- Computations ---
+  const allTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    bookmarks.forEach(b => {
+      b.tags?.forEach(t => tagSet.add(t));
+    });
+    return Array.from(tagSet).sort();
+  }, [bookmarks]);
+
   const filteredBookmarks = useMemo(() => {
     let result = bookmarks;
+
+    // Tag Filter
+    if (activeTag) {
+      result = result.filter(b => b.tags?.includes(activeTag));
+    }
 
     // Search Filter (Global Search - Overrides Folder View)
     if (searchQuery.trim()) {
@@ -65,8 +183,9 @@ function App() {
         const title = (b.title || '').toLowerCase();
         const url = (b.url || '').toLowerCase();
         const desc = (b.description || '').toLowerCase();
-        
-        return title.includes(q) || url.includes(q) || desc.includes(q);
+        const tags = (b.tags || []).join(' ').toLowerCase();
+
+        return title.includes(q) || url.includes(q) || desc.includes(q) || tags.includes(q);
       }).sort((a, b) => b.createdAt - a.createdAt);
     }
 
@@ -77,7 +196,7 @@ function App() {
 
     // Sort by newest
     return result.sort((a, b) => b.createdAt - a.createdAt);
-  }, [bookmarks, activeFolderId, searchQuery]);
+  }, [bookmarks, activeFolderId, searchQuery, activeTag]);
 
   const bookmarkCounts = useMemo(() => {
     const counts: Record<string, number> = { 'ALL': bookmarks.length };
@@ -87,39 +206,70 @@ function App() {
     return counts;
   }, [bookmarks, folders]);
 
-  const activeFolderName = searchQuery.trim() 
-    ? 'Search Results' 
-    : (activeFolderId === 'ALL' 
-        ? 'All Bookmarks' 
-        : folders.find(f => f.id === activeFolderId)?.name || 'Unknown Folder');
+  const activeFolderName = useMemo(() => {
+    if (activeTag) return `Tag: #${activeTag}`;
+    if (searchQuery.trim()) return 'Search Results';
+    if (activeFolderId === 'ALL') return 'All Bookmarks';
+    return folders.find(f => f.id === activeFolderId)?.name || 'Unknown Folder';
+  }, [activeTag, searchQuery, activeFolderId, folders]);
 
   // --- Handlers ---
 
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type });
   };
-  
+
   // Auth Handlers
-  const handleUnlock = (inputPin: string) => {
-    const storedPin = localStorage.getItem('lh_pin');
+  const handleUnlock = async (inputPin: string) => {
+    const storedPin = localStorage.getItem(STORAGE_KEYS.PIN);
     if (inputPin === storedPin) {
-      sessionStorage.setItem('lh_session', 'true');
+      sessionStorage.setItem(STORAGE_KEYS.SESSION, 'true');
       setIsAuthenticated(true);
+
+      // Derive encryption key
+      if (isEncryptionSupported()) {
+        const saltBase64 = localStorage.getItem(STORAGE_KEYS.SALT);
+        if (saltBase64) {
+          const salt = base64ToArray(saltBase64);
+          const key = await deriveKey(inputPin, salt);
+          setCryptoKey(key);
+          await loadData(key);
+        } else {
+          await loadData(null);
+        }
+      } else {
+        await loadData(null);
+      }
+
       return true;
     }
     return false;
   };
 
-  const handleSetupPin = (newPin: string) => {
-    localStorage.setItem('lh_pin', newPin);
+  const handleSetupPin = async (newPin: string) => {
+    localStorage.setItem(STORAGE_KEYS.PIN, newPin);
     setHasPin(true);
-    sessionStorage.setItem('lh_session', 'true');
+    sessionStorage.setItem(STORAGE_KEYS.SESSION, 'true');
     setIsAuthenticated(true);
+
+    // Setup encryption
+    if (isEncryptionSupported()) {
+      const salt = generateSalt();
+      localStorage.setItem(STORAGE_KEYS.SALT, arrayToBase64(salt));
+      const key = await deriveKey(newPin, salt);
+      setCryptoKey(key);
+    }
+
+    // Initialize default data
+    setFolders([{ id: 'default', name: 'General', createdAt: Date.now() }]);
+    setBookmarks([]);
+    setDataLoaded(true);
   };
 
   const handleLock = () => {
-    sessionStorage.removeItem('lh_session');
+    sessionStorage.removeItem(STORAGE_KEYS.SESSION);
     setIsAuthenticated(false);
+    setCryptoKey(null);
   };
 
   // Data Handlers
@@ -142,51 +292,54 @@ function App() {
   const handleSaveBookmark = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newItemUrl.trim()) return;
-    
+
     let title = newItemName.trim();
     if (!title) {
-        try {
-            title = new URL(newItemUrl).hostname;
-        } catch {
-            title = "Untitled Bookmark";
-        }
+      try {
+        title = new URL(newItemUrl).hostname;
+      } catch {
+        title = "Untitled Bookmark";
+      }
     }
 
     let folderId = selectedFolderForAdd;
     if (!folderId) {
-        folderId = activeFolderId === 'ALL' ? folders[0]?.id || 'default' : activeFolderId;
+      folderId = activeFolderId === 'ALL' ? folders[0]?.id || 'default' : activeFolderId;
     }
 
     if (modalType === 'EDIT_BOOKMARK' && editingBookmarkId) {
-        // Edit Existing
-        setBookmarks(bookmarks.map(b => b.id === editingBookmarkId ? {
-            ...b,
-            title,
-            url: newItemUrl.includes('://') ? newItemUrl : `https://${newItemUrl}`,
-            description: newItemDescription.trim(),
-            folderId
-        } : b));
-        showToast('Bookmark updated', 'success');
+      // Edit Existing
+      setBookmarks(bookmarks.map(b => b.id === editingBookmarkId ? {
+        ...b,
+        title,
+        url: newItemUrl.includes('://') ? newItemUrl : `https://${newItemUrl}`,
+        description: newItemDescription.trim(),
+        tags: newItemTags,
+        folderId
+      } : b));
+      showToast('Bookmark updated', 'success');
     } else {
-        // Create New
-        const newBookmark: Bookmark = {
-          id: generateId(),
-          folderId,
-          title: title,
-          description: newItemDescription.trim(),
-          url: newItemUrl.includes('://') ? newItemUrl : `https://${newItemUrl}`,
-          createdAt: Date.now()
-        };
-        setBookmarks([newBookmark, ...bookmarks]);
-        showToast('Bookmark added', 'success');
+      // Create New
+      const newBookmark: Bookmark = {
+        id: generateId(),
+        folderId,
+        title: title,
+        description: newItemDescription.trim(),
+        url: newItemUrl.includes('://') ? newItemUrl : `https://${newItemUrl}`,
+        tags: newItemTags,
+        createdAt: Date.now()
+      };
+      setBookmarks([newBookmark, ...bookmarks]);
+      showToast('Bookmark added', 'success');
     }
-    
+
     // Reset
     setModalType(null);
     setEditingBookmarkId(null);
     setNewItemName('');
     setNewItemUrl('');
     setNewItemDescription('');
+    setNewItemTags([]);
   };
 
   const deleteFolder = (id: string) => {
@@ -200,10 +353,10 @@ function App() {
     };
 
     const idsToDelete = getIdsToDelete(id);
-    
+
     setFolders(folders.filter(f => !idsToDelete.includes(f.id)));
     setBookmarks(bookmarks.filter(b => !idsToDelete.includes(b.folderId)));
-    
+
     if (idsToDelete.includes(activeFolderId as string)) setActiveFolderId('ALL');
     showToast('Folder deleted', 'success');
   };
@@ -213,66 +366,131 @@ function App() {
     showToast('Bookmark deleted', 'success');
   };
 
+  // Auto-fetch metadata
+  const handleUrlBlur = async () => {
+    if (!newItemUrl.trim() || newItemName.trim()) return;
+
+    setIsFetchingMeta(true);
+    try {
+      const metadata = await fetchUrlMetadata(newItemUrl);
+      if (metadata.success && metadata.title) {
+        setNewItemName(metadata.title);
+        if (metadata.description && !newItemDescription) {
+          setNewItemDescription(metadata.description);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch metadata:', e);
+    }
+    setIsFetchingMeta(false);
+  };
+
   // Export / Import Handlers
   const handleExport = () => {
     try {
-        const data = {
-            version: 1,
-            exportDate: new Date().toISOString(),
-            folders,
-            bookmarks
-        };
-        
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        const fileName = `linkhaven_backup_${new Date().toISOString().slice(0, 10)}.json`;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        
-        showToast('Backup downloaded successfully', 'success');
+      const data = {
+        version: 2,
+        exportDate: new Date().toISOString(),
+        folders,
+        bookmarks
+      };
+
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const fileName = `linkhaven_backup_${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showToast('Backup downloaded successfully', 'success');
     } catch (e) {
-        showToast('Failed to export data', 'error');
+      showToast('Failed to export data', 'error');
     }
   };
 
   const handleImportFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
-        try {
-            const json = JSON.parse(e.target?.result as string);
-            
-            // Basic validation
-            if (!Array.isArray(json.folders) || !Array.isArray(json.bookmarks)) {
-                throw new Error("Invalid backup file format");
-            }
-            
-            setPendingImportData({
-                folders: json.folders,
-                bookmarks: json.bookmarks
-            });
-            setModalType('IMPORT_CONFIRMATION');
+      try {
+        const content = e.target?.result as string;
+        const parsed = parseImportFile(content, file.name);
 
-        } catch (err) {
-            console.error(err);
-            showToast('Invalid backup file. Import failed.', 'error');
+        if (parsed.folders.length === 0 && parsed.bookmarks.length === 0) {
+          showToast('No bookmarks found in file', 'error');
+          return;
         }
+
+        setPendingImportData(parsed);
+        setModalType('IMPORT_CONFIRMATION');
+
+      } catch (err) {
+        console.error(err);
+        showToast('Invalid file. Import failed.', 'error');
+      }
     };
     reader.readAsText(file);
   };
 
-  const confirmImport = () => {
-      if (pendingImportData) {
-          setFolders(pendingImportData.folders);
-          setBookmarks(pendingImportData.bookmarks);
-          setPendingImportData(null);
-          setModalType(null);
-          showToast('Data restored successfully', 'success');
+  const confirmImport = (merge: boolean = false) => {
+    if (pendingImportData) {
+      if (merge) {
+        // Merge mode: add to existing
+        const newFolders = pendingImportData.folders.filter(
+          pf => !folders.some(f => f.name === pf.name)
+        );
+        setFolders([...folders, ...newFolders]);
+        setBookmarks([...bookmarks, ...pendingImportData.bookmarks]);
+        showToast(`Merged ${pendingImportData.bookmarks.length} bookmarks`, 'success');
+      } else {
+        // Replace mode
+        setFolders(pendingImportData.folders);
+        setBookmarks(pendingImportData.bookmarks);
+        showToast('Data restored successfully', 'success');
       }
+      setPendingImportData(null);
+      setModalType(null);
+    }
+  };
+
+  // Health Check
+  const handleCheckHealth = async () => {
+    if (isCheckingHealth || bookmarks.length === 0) return;
+
+    setIsCheckingHealth(true);
+    setHealthProgress({ current: 0, total: bookmarks.length });
+
+    // Mark all as checking
+    setBookmarks(prev => prev.map(b => ({ ...b, linkHealth: 'checking' as const })));
+
+    const urls = bookmarks.map(b => b.url);
+    const results = await checkMultipleLinks(urls, 10, (current, total) => {
+      setHealthProgress({ current, total });
+    });
+
+    // Update bookmarks with results
+    setBookmarks(prev => prev.map(b => {
+      const result = results.get(b.url);
+      return {
+        ...b,
+        linkHealth: result?.status || 'unknown',
+        lastHealthCheck: Date.now()
+      };
+    }));
+
+    // Count dead links
+    const deadCount = Array.from(results.values()).filter(r => r.status === 'dead').length;
+
+    setIsCheckingHealth(false);
+    showToast(
+      deadCount > 0
+        ? `Found ${deadCount} potentially broken link${deadCount > 1 ? 's' : ''}`
+        : 'All links appear to be working!',
+      deadCount > 0 ? 'error' : 'success'
+    );
   };
 
   // Modal Openers
@@ -280,6 +498,7 @@ function App() {
     setNewItemName('');
     setNewItemUrl('');
     setNewItemDescription('');
+    setNewItemTags([]);
     setSelectedFolderForAdd(activeFolderId === 'ALL' ? (folders[0]?.id || '') : activeFolderId);
     setEditingBookmarkId(null);
     setModalType('ADD_BOOKMARK');
@@ -289,6 +508,7 @@ function App() {
     setNewItemName(bookmark.title);
     setNewItemUrl(bookmark.url);
     setNewItemDescription(bookmark.description || '');
+    setNewItemTags(bookmark.tags || []);
     setSelectedFolderForAdd(bookmark.folderId);
     setEditingBookmarkId(bookmark.id);
     setModalType('EDIT_BOOKMARK');
@@ -296,18 +516,54 @@ function App() {
 
   const openFolderModal = () => {
     setNewItemName('');
-    setNewFolderParentId(''); 
+    setNewFolderParentId('');
     setModalType('ADD_FOLDER');
   };
+
+  const handleTagClick = (tag: string) => {
+    setActiveTag(tag);
+    setSearchQuery('');
+  };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only when authenticated and no modal open
+      if (!isAuthenticated || modalType) return;
+
+      // / for search focus
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        const searchInput = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement;
+        searchInput?.focus();
+      }
+
+      // Cmd/Ctrl + K for search
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        const searchInput = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement;
+        searchInput?.focus();
+      }
+
+      // Cmd/Ctrl + N for new bookmark
+      if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+        e.preventDefault();
+        openAddModal();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isAuthenticated, modalType]);
 
   // --- Render ---
 
   if (!isAuthenticated) {
     return (
       <div className="h-screen w-full bg-slate-900 font-sans">
-        <LockScreen 
-          isSetupMode={!hasPin} 
-          onUnlock={handleUnlock} 
+        <LockScreen
+          isSetupMode={!hasPin}
+          onUnlock={handleUnlock}
           onSetup={handleSetupPin}
         />
       </div>
@@ -316,37 +572,42 @@ function App() {
 
   return (
     <div className="flex h-screen w-full bg-[#f8fafc] text-slate-800 font-sans overflow-hidden">
-      
+
       {toast && (
-          <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
+        <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
       )}
 
       {/* Sidebar */}
       <div className={`${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} fixed inset-y-0 left-0 z-30 transform md:relative md:translate-x-0 transition-transform duration-300 ease-in-out`}>
-         <Sidebar 
-            folders={folders}
-            activeFolderId={activeFolderId}
-            onSelectFolder={(id) => { 
-                if (!searchQuery.trim()) {
-                    setActiveFolderId(id); 
-                } else {
-                    // Clear search if user clicks a folder
-                    setSearchQuery('');
-                    setActiveFolderId(id);
-                }
-                if(window.innerWidth < 768) setIsSidebarOpen(false); 
-            }}
-            onAddFolder={openFolderModal}
-            onDeleteFolder={deleteFolder}
-            bookmarkCounts={bookmarkCounts}
-            onExport={handleExport}
-            onImport={handleImportFile}
-         />
+        <Sidebar
+          folders={folders}
+          activeFolderId={activeFolderId}
+          onSelectFolder={(id) => {
+            setActiveTag('');
+            if (!searchQuery.trim()) {
+              setActiveFolderId(id);
+            } else {
+              setSearchQuery('');
+              setActiveFolderId(id);
+            }
+            if (window.innerWidth < 768) setIsSidebarOpen(false);
+          }}
+          onAddFolder={openFolderModal}
+          onDeleteFolder={deleteFolder}
+          bookmarkCounts={bookmarkCounts}
+          onExport={handleExport}
+          onImport={handleImportFile}
+          onShowBookmarklet={() => setModalType('BOOKMARKLET')}
+          onCheckHealth={handleCheckHealth}
+          isCheckingHealth={isCheckingHealth}
+          activeTag={activeTag}
+          onClearTag={() => setActiveTag('')}
+        />
       </div>
-      
+
       {/* Overlay */}
       {isSidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 z-20 md:hidden"
           onClick={() => setIsSidebarOpen(false)}
         />
@@ -354,20 +615,21 @@ function App() {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 h-full">
-        
+
         {/* Header */}
         <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 z-10 shadow-sm/50">
           <div className="flex items-center gap-4 w-full sm:w-auto">
-            <button 
-                onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
-                className="md:hidden p-2 -ml-2 text-slate-500 hover:bg-slate-100 rounded-lg"
+            <button
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="md:hidden p-2 -ml-2 text-slate-500 hover:bg-slate-100 rounded-lg"
             >
-                <Menu size={20} />
+              <Menu size={20} />
             </button>
             <div className="flex flex-col">
               <h2 className="text-xl font-bold text-slate-800 tracking-tight">{activeFolderName}</h2>
               <span className="text-xs text-slate-500 font-medium">
-                  {filteredBookmarks.length} {filteredBookmarks.length === 1 ? 'bookmark' : 'bookmarks'}
+                {filteredBookmarks.length} {filteredBookmarks.length === 1 ? 'bookmark' : 'bookmarks'}
+                {isCheckingHealth && ` • Checking ${healthProgress.current}/${healthProgress.total}`}
               </span>
             </div>
           </div>
@@ -380,13 +642,13 @@ function App() {
               <input
                 type="text"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search description, title, url..."
+                onChange={(e) => { setSearchQuery(e.target.value); setActiveTag(''); }}
+                placeholder="Search... (Press / to focus)"
                 className="block w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-xl leading-5 bg-slate-50 text-slate-900 placeholder-slate-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all sm:text-sm"
               />
             </div>
-            
-            <button 
+
+            <button
               onClick={openAddModal}
               className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium shadow-sm shadow-indigo-200 transition-all active:scale-95 flex-shrink-0"
             >
@@ -395,7 +657,7 @@ function App() {
               <span className="sm:hidden">Add</span>
             </button>
 
-             <button 
+            <button
               onClick={handleLock}
               className="p-2.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-xl transition-colors"
               title="Lock App"
@@ -407,59 +669,63 @@ function App() {
 
         {/* Content */}
         <main className="flex-1 overflow-y-auto px-6 py-8">
-            <div className="max-w-7xl mx-auto">
-                <BookmarkGrid 
-                    bookmarks={filteredBookmarks} 
-                    onDeleteBookmark={deleteBookmark}
-                    onEditBookmark={openEditModal}
-                    searchQuery={searchQuery}
-                    folders={folders}
-                />
-            </div>
+          <div className="max-w-7xl mx-auto">
+            <BookmarkGrid
+              bookmarks={filteredBookmarks}
+              onDeleteBookmark={deleteBookmark}
+              onEditBookmark={openEditModal}
+              onTagClick={handleTagClick}
+              searchQuery={searchQuery}
+              folders={folders}
+            />
+          </div>
         </main>
       </div>
 
       {/* --- Modals --- */}
-      
+
       {/* Import Confirmation Modal */}
       <Modal
         isOpen={modalType === 'IMPORT_CONFIRMATION'}
         onClose={() => setModalType(null)}
-        title="Restore Backup"
+        title="Import Bookmarks"
       >
         <div className="text-center">
-            <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                <UploadCloud size={32} className="text-amber-500" />
-            </div>
-            <h3 className="text-lg font-bold text-slate-800 mb-2">Overwrite existing data?</h3>
-            <p className="text-sm text-slate-500 mb-6">
-                This will replace your current collection with the backup, which contains 
-                <span className="font-semibold text-slate-800"> {pendingImportData?.folders.length} folders</span> and 
-                <span className="font-semibold text-slate-800"> {pendingImportData?.bookmarks.length} bookmarks</span>.
-                <br /><br />
-                This action cannot be undone.
-            </p>
-            <div className="flex justify-center gap-3">
-                <button
-                    onClick={() => setModalType(null)}
-                    className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                >
-                    Cancel
-                </button>
-                <button
-                    onClick={confirmImport}
-                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors"
-                >
-                    Restore Data
-                </button>
-            </div>
+          <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <UploadCloud size={32} className="text-amber-500" />
+          </div>
+          <h3 className="text-lg font-bold text-slate-800 mb-2">Import {pendingImportData?.bookmarks.length} bookmarks?</h3>
+          <p className="text-sm text-slate-500 mb-6">
+            Found <span className="font-semibold text-slate-800">{pendingImportData?.folders.length} folders</span> and
+            <span className="font-semibold text-slate-800"> {pendingImportData?.bookmarks.length} bookmarks</span>.
+          </p>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => confirmImport(true)}
+              className="w-full px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors"
+            >
+              Merge with existing data
+            </button>
+            <button
+              onClick={() => confirmImport(false)}
+              className="w-full px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+            >
+              Replace all data
+            </button>
+            <button
+              onClick={() => setModalType(null)}
+              className="w-full px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       </Modal>
 
       {/* Add Folder Modal */}
-      <Modal 
-        isOpen={modalType === 'ADD_FOLDER'} 
-        onClose={() => setModalType(null)} 
+      <Modal
+        isOpen={modalType === 'ADD_FOLDER'}
+        onClose={() => setModalType(null)}
         title="Create New Folder"
       >
         <form onSubmit={handleAddFolder} className="space-y-4">
@@ -482,10 +748,10 @@ function App() {
               onChange={(e) => setNewFolderParentId(e.target.value)}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all bg-white"
             >
-               <option value="">No Parent (Root Folder)</option>
-               {folders.map(f => (
-                   <option key={f.id} value={f.id}>{f.name}</option>
-               ))}
+              <option value="">No Parent (Root Folder)</option>
+              {folders.map(f => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
             </select>
           </div>
           <div className="flex justify-end gap-3 pt-2">
@@ -507,23 +773,34 @@ function App() {
       </Modal>
 
       {/* Add/Edit Bookmark Modal */}
-      <Modal 
-        isOpen={modalType === 'ADD_BOOKMARK' || modalType === 'EDIT_BOOKMARK'} 
-        onClose={() => setModalType(null)} 
+      <Modal
+        isOpen={modalType === 'ADD_BOOKMARK' || modalType === 'EDIT_BOOKMARK'}
+        onClose={() => setModalType(null)}
         title={modalType === 'EDIT_BOOKMARK' ? 'Edit Bookmark' : 'Add New Bookmark'}
       >
         <form onSubmit={handleSaveBookmark} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">URL</label>
-            <input
-              type="text"
-              required
-              autoFocus={modalType === 'ADD_BOOKMARK'}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-              placeholder="https://example.com"
-              value={newItemUrl}
-              onChange={(e) => setNewItemUrl(e.target.value)}
-            />
+            <div className="relative">
+              <input
+                type="text"
+                required
+                autoFocus={modalType === 'ADD_BOOKMARK'}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all pr-10"
+                placeholder="https://example.com"
+                value={newItemUrl}
+                onChange={(e) => setNewItemUrl(e.target.value)}
+                onBlur={handleUrlBlur}
+              />
+              {isFetchingMeta && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <Loader size={16} className="animate-spin text-slate-400" />
+                </div>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-slate-400">
+              Title will auto-fetch when you tab out
+            </p>
           </div>
 
           <div>
@@ -536,15 +813,27 @@ function App() {
               onChange={(e) => setNewItemName(e.target.value)}
             />
           </div>
-           <div>
+          <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Description (Optional)</label>
             <textarea
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all min-h-[80px]"
-              placeholder="Add keywords, notes, or context for easier searching..."
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all min-h-[60px]"
+              placeholder="Add notes for easier searching..."
               value={newItemDescription}
               onChange={(e) => setNewItemDescription(e.target.value)}
             />
           </div>
+
+          {/* Tags Input */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Tags</label>
+            <TagInput
+              tags={newItemTags}
+              onChange={setNewItemTags}
+              allTags={allTags}
+              placeholder="Add tags (e.g., work, research)"
+            />
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Folder</label>
             <select
@@ -552,9 +841,9 @@ function App() {
               onChange={(e) => setSelectedFolderForAdd(e.target.value)}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all bg-white"
             >
-               {folders.map(f => (
-                   <option key={f.id} value={f.id}>{f.name}</option>
-               ))}
+              {folders.map(f => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
             </select>
           </div>
           <div className="flex justify-end gap-3 pt-2">
@@ -573,6 +862,18 @@ function App() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Bookmarklet Modal */}
+      <Modal
+        isOpen={modalType === 'BOOKMARKLET'}
+        onClose={() => setModalType(null)}
+        title="Quick-Add Bookmarklet"
+      >
+        <BookmarkletModal
+          appUrl={window.location.origin}
+          onClose={() => setModalType(null)}
+        />
       </Modal>
 
     </div>

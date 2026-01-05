@@ -1,0 +1,37 @@
+{
+    "name": "LinkHaven",
+    "short_name": "LinkHaven",
+    "description": "Privacy-first offline bookmarks manager. Your data never leaves your browser.",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#0f172a",
+    "theme_color": "#6366f1",
+    "orientation": "any",
+    "scope": "/",
+    "icons": [
+        {
+            "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect fill='%236366f1' width='512' height='512' rx='100'/><text y='.9em' font-size='400' x='50%' text-anchor='middle' fill='white'>🔗</text></svg>",
+            "sizes": "512x512",
+            "type": "image/svg+xml",
+            "purpose": "any maskable"
+        }
+    ],
+    "categories": [
+        "productivity",
+        "utilities"
+    ],
+    "shortcuts": [
+        {
+            "name": "Add Bookmark",
+            "short_name": "Add",
+            "description": "Add a new bookmark",
+            "url": "/?action=add",
+            "icons": [
+                {
+                    "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%236366f1'><circle cx='12' cy='12' r='10'/><text x='12' y='16' text-anchor='middle' fill='white' font-size='14'>+</text></svg>",
+                    "sizes": "96x96"
+                }
+            ]
+        }
+    ]
+}

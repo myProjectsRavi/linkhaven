@@ -12,13 +12,30 @@ export interface Bookmark {
   title: string;
   description?: string;
   url: string;
+  tags?: string[];
+  linkHealth?: 'alive' | 'dead' | 'unknown' | 'checking';
+  lastHealthCheck?: number;
   createdAt: number;
 }
 
-export type ModalType = 'ADD_BOOKMARK' | 'ADD_FOLDER' | 'EDIT_FOLDER' | 'EDIT_BOOKMARK' | 'IMPORT_CONFIRMATION' | null;
+export type ModalType =
+  | 'ADD_BOOKMARK'
+  | 'ADD_FOLDER'
+  | 'EDIT_FOLDER'
+  | 'EDIT_BOOKMARK'
+  | 'IMPORT_CONFIRMATION'
+  | 'BOOKMARKLET'
+  | 'HEALTH_CHECK_PROGRESS'
+  | null;
 
 export interface ViewState {
   activeFolderId: string | 'ALL';
   searchQuery: string;
   isSidebarOpen: boolean;
+}
+
+// For tag filtering
+export interface TagFilter {
+  tag: string;
+  active: boolean;
 }
