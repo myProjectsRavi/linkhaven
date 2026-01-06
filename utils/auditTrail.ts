@@ -249,14 +249,59 @@ export async function exportAuditLogHTML(): Promise<string> {
         HEALTH_CHECK: '🔍 Health Check'
     };
 
+    // Helper to extract human-readable details from entry
+    const getDetails = (entry: AuditEntry): string => {
+        // Try to parse dataSnapshot for details
+        if (entry.dataSnapshot) {
+            try {
+                const data = JSON.parse(entry.dataSnapshot);
+                if (data.title && data.url) {
+                    // Bookmark
+                    return `<strong>${data.title}</strong><br><span style="color:#666;font-size:11px;">${data.url}</span>`;
+                } else if (data.name) {
+                    // Folder
+                    return `<strong>Folder: ${data.name}</strong>`;
+                }
+            } catch {
+                // Not JSON, continue to metadata
+            }
+        }
+
+        // Fall back to metadata
+        if (entry.metadata) {
+            if (entry.metadata.deletedTitle) {
+                return `<strong>${entry.metadata.deletedTitle}</strong> <span style="color:#999;">(deleted)</span>`;
+            }
+            if (entry.metadata.deletedName) {
+                return `<strong>Folder: ${entry.metadata.deletedName}</strong> <span style="color:#999;">(deleted)</span>`;
+            }
+            if (entry.metadata.importedCount) {
+                return `<strong>${entry.metadata.importedCount} bookmarks</strong> imported`;
+            }
+            if (entry.metadata.url) {
+                return `Snapshot of: ${entry.metadata.url}`;
+            }
+            if (entry.metadata.checkedCount) {
+                return `Checked ${entry.metadata.checkedCount} links, ${entry.metadata.deadCount} dead`;
+            }
+        }
+
+        // System actions
+        if (entry.entityId === 'system') {
+            return '<span style="color:#999;">System action</span>';
+        }
+
+        return `ID: ${entry.entityId.substring(0, 12)}...`;
+    };
+
     let entriesHTML = '';
     for (const entry of log.entries) {
         entriesHTML += `
       <tr>
-        <td style="padding: 8px; border: 1px solid #ddd;">${formatDate(entry.timestamp)}</td>
-        <td style="padding: 8px; border: 1px solid #ddd;">${actionLabels[entry.action] || entry.action}</td>
-        <td style="padding: 8px; border: 1px solid #ddd; font-family: monospace; font-size: 10px;">${entry.entityId.substring(0, 12)}...</td>
-        <td style="padding: 8px; border: 1px solid #ddd; font-family: monospace; font-size: 10px;">${entry.entryHash.substring(0, 16)}...</td>
+        <td style="padding: 10px; border: 1px solid #e2e8f0;">${formatDate(entry.timestamp)}</td>
+        <td style="padding: 10px; border: 1px solid #e2e8f0;">${actionLabels[entry.action] || entry.action}</td>
+        <td style="padding: 10px; border: 1px solid #e2e8f0;">${getDetails(entry)}</td>
+        <td style="padding: 10px; border: 1px solid #e2e8f0; font-family: monospace; font-size: 10px; color: #64748b;">${entry.entryHash.substring(0, 16)}...</td>
       </tr>
     `;
     }
@@ -268,15 +313,17 @@ export async function exportAuditLogHTML(): Promise<string> {
   <meta charset="UTF-8">
   <title>LinkHaven Audit Trail Certificate</title>
   <style>
-    body { font-family: 'Segoe UI', Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; background: #fff; }
     h1 { color: #4f46e5; border-bottom: 2px solid #4f46e5; padding-bottom: 10px; }
-    .header { background: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-    .integrity { font-size: 18px; font-weight: bold; color: ${verification.isValid ? '#10b981' : '#ef4444'}; }
-    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-    th { background: #4f46e5; color: white; padding: 12px; text-align: left; }
+    .header { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); padding: 24px; border-radius: 12px; margin-bottom: 24px; border: 1px solid #e2e8f0; }
+    .integrity { font-size: 18px; font-weight: bold; color: ${verification.isValid ? '#10b981' : '#ef4444'}; margin: 12px 0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    th { background: #4f46e5; color: white; padding: 14px; text-align: left; font-weight: 600; }
     tr:nth-child(even) { background: #f8fafc; }
-    .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 12px; color: #666; }
-    .hash { font-family: monospace; font-size: 11px; background: #f1f5f9; padding: 4px 8px; border-radius: 4px; word-break: break-all; }
+    tr:hover { background: #f1f5f9; }
+    .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; }
+    .hash { font-family: monospace; font-size: 11px; background: #f1f5f9; padding: 6px 10px; border-radius: 6px; word-break: break-all; color: #475569; }
+    .stat { display: inline-block; background: #4f46e5; color: white; padding: 4px 12px; border-radius: 20px; font-size: 14px; margin-right: 8px; }
   </style>
 </head>
 <body>
@@ -284,8 +331,8 @@ export async function exportAuditLogHTML(): Promise<string> {
   
   <div class="header">
     <p><strong>Generated:</strong> ${formatDate(Date.now())}</p>
-    <p><strong>Total Entries:</strong> ${log.entries.length}</p>
-    <p class="integrity">Chain Integrity: ${verification.isValid ? '✅ VERIFIED' : '❌ BROKEN'}</p>
+    <p><span class="stat">${log.entries.length} Total Entries</span></p>
+    <p class="integrity">Chain Integrity: ${verification.isValid ? '✅ VERIFIED - All entries cryptographically linked' : '❌ BROKEN - Chain has been tampered with'}</p>
     <p><strong>Genesis Hash:</strong></p>
     <p class="hash">${log.genesisHash}</p>
     <p><strong>Latest Hash:</strong></p>
@@ -296,24 +343,25 @@ export async function exportAuditLogHTML(): Promise<string> {
   <table>
     <thead>
       <tr>
-        <th>Timestamp</th>
-        <th>Action</th>
-        <th>Entity ID</th>
-        <th>Entry Hash</th>
+        <th style="width: 180px;">Timestamp</th>
+        <th style="width: 160px;">Action</th>
+        <th>Details</th>
+        <th style="width: 150px;">Proof Hash</th>
       </tr>
     </thead>
     <tbody>
-      ${entriesHTML || '<tr><td colspan="4" style="padding: 20px; text-align: center;">No entries recorded yet.</td></tr>'}
+      ${entriesHTML || '<tr><td colspan="4" style="padding: 24px; text-align: center; color: #94a3b8;">No entries recorded yet.</td></tr>'}
     </tbody>
   </table>
   
   <div class="footer">
     <p><strong>About This Certificate:</strong></p>
-    <p>This document provides a cryptographically verifiable record of all activities performed in your LinkHaven bookmark vault. 
-    Each entry is linked to the previous entry via SHA-256 hashing, creating a tamper-evident chain. 
+    <p>This document provides a cryptographically verifiable record of all activities in your LinkHaven bookmark vault. 
+    Each entry contains a SHA-256 hash that links to the previous entry, creating a tamper-evident chain (similar to blockchain). 
     Any modification to historical entries would break the chain integrity.</p>
-    <p><strong>Verification:</strong> The JSON export can be independently verified using any SHA-256 implementation.</p>
-    <p>© LinkHaven - Privacy-First Bookmarks Manager</p>
+    <p><strong>Legal Note:</strong> This certificate can serve as evidence of when specific bookmarks/data were created or modified. 
+    The cryptographic hashes can be independently verified using the JSON export.</p>
+    <p style="margin-top: 16px;">© LinkHaven - Privacy-First Bookmarks Manager | Zero Cloud, Zero Tracking</p>
   </div>
 </body>
 </html>
