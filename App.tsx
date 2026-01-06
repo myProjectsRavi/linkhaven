@@ -221,6 +221,15 @@ function App() {
     return Array.from(tagSet).sort();
   }, [bookmarks]);
 
+  // All note tags for autocomplete
+  const allNoteTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    notes.forEach(n => {
+      n.tags?.forEach(t => tagSet.add(t));
+    });
+    return Array.from(tagSet).sort();
+  }, [notes]);
+
   const filteredBookmarks = useMemo(() => {
     let result = bookmarks;
 
@@ -259,14 +268,6 @@ function App() {
     return counts;
   }, [bookmarks, folders]);
 
-  // Notes computed values
-  const allNoteTags = useMemo(() => {
-    const tagSet = new Set<string>();
-    notes.forEach(n => {
-      n.tags?.forEach(t => tagSet.add(t));
-    });
-    return Array.from(tagSet).sort();
-  }, [notes]);
 
   const filteredNotes = useMemo(() => {
     let result = notes;
@@ -1327,7 +1328,8 @@ function App() {
               </label>
               <TagInput
                 tags={newNoteTags}
-                onTagsChange={setNewNoteTags}
+                onChange={setNewNoteTags}
+                allTags={allNoteTags}
                 placeholder="Add tags..."
               />
             </div>
