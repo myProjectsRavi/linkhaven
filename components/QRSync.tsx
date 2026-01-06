@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Smartphone, QrCode, Copy, Check, Upload, Download, AlertCircle } from 'lucide-react';
-import { Folder, Bookmark } from '../types';
+import { Folder, Bookmark, Notebook, Note } from '../types';
 
 interface QRSyncProps {
     folders: Folder[];
     bookmarks: Bookmark[];
-    onImport: (folders: Folder[], bookmarks: Bookmark[]) => void;
+    notebooks?: Notebook[];
+    notes?: Note[];
+    onImport: (folders: Folder[], bookmarks: Bookmark[], notebooks?: Notebook[], notes?: Note[]) => void;
     onClose: () => void;
 }
 
@@ -24,9 +26,9 @@ function decompressData(compressed: string): string {
 }
 
 // Generate a simple shareable code (not actual QR, but text-based transfer)
-function generateSyncCode(folders: Folder[], bookmarks: Bookmark[]): string {
-    const payload = {
-        v: 1, // version
+function generateSyncCode(folders: Folder[], bookmarks: Bookmark[], notebooks?: Notebook[], notes?: Note[]): string {
+    const payload: any = {
+        v: 2, // version 2 includes notes
         t: Date.now(),
         f: folders.map(f => ({
             i: f.id,
@@ -44,11 +46,34 @@ function generateSyncCode(folders: Folder[], bookmarks: Bookmark[]): string {
             c: b.createdAt
         }))
     };
+
+    // Add notebooks and notes if present
+    if (notebooks && notebooks.length > 0) {
+        payload.nb = notebooks.map(n => ({
+            i: n.id,
+            n: n.name,
+            p: n.parentId,
+            c: n.createdAt
+        }));
+    }
+
+    if (notes && notes.length > 0) {
+        payload.nt = notes.map(n => ({
+            i: n.id,
+            nb: n.notebookId,
+            t: n.title,
+            ct: n.content,
+            tg: n.tags,
+            c: n.createdAt,
+            u: n.updatedAt
+        }));
+    }
+
     return compressData(JSON.stringify(payload));
 }
 
 // Parse sync code back to data
-function parseSyncCode(code: string): { folders: Folder[], bookmarks: Bookmark[] } | null {
+function parseSyncCode(code: string): { folders: Folder[], bookmarks: Bookmark[], notebooks: Notebook[], notes: Note[] } | null {
     try {
         const json = decompressData(code);
         const payload = JSON.parse(json);
@@ -74,7 +99,25 @@ function parseSyncCode(code: string): { folders: Folder[], bookmarks: Bookmark[]
             createdAt: b.c
         }));
 
-        return { folders, bookmarks };
+        // Parse notebooks and notes (v2)
+        const notebooks: Notebook[] = payload.nb ? payload.nb.map((n: any) => ({
+            id: n.i,
+            name: n.n,
+            parentId: n.p || null,
+            createdAt: n.c
+        })) : [];
+
+        const notes: Note[] = payload.nt ? payload.nt.map((n: any) => ({
+            id: n.i,
+            notebookId: n.nb,
+            title: n.t,
+            content: n.ct,
+            tags: n.tg || [],
+            createdAt: n.c,
+            updatedAt: n.u
+        })) : [];
+
+        return { folders, bookmarks, notebooks, notes };
     } catch {
         return null;
     }
@@ -83,6 +126,8 @@ function parseSyncCode(code: string): { folders: Folder[], bookmarks: Bookmark[]
 export const QRSync: React.FC<QRSyncProps> = ({
     folders,
     bookmarks,
+    notebooks = [],
+    notes = [],
     onImport,
     onClose
 }) => {
@@ -95,10 +140,10 @@ export const QRSync: React.FC<QRSyncProps> = ({
 
     useEffect(() => {
         if (mode === 'export') {
-            const code = generateSyncCode(folders, bookmarks);
+            const code = generateSyncCode(folders, bookmarks, notebooks, notes);
             setSyncCode(code);
         }
-    }, [mode, folders, bookmarks]);
+    }, [mode, folders, bookmarks, notebooks, notes]);
 
     const handleCopy = async () => {
         await navigator.clipboard.writeText(syncCode);
@@ -115,7 +160,7 @@ export const QRSync: React.FC<QRSyncProps> = ({
             return;
         }
 
-        onImport(result.folders, result.bookmarks);
+        onImport(result.folders, result.bookmarks, result.notebooks, result.notes);
         onClose();
     };
 
@@ -126,8 +171,8 @@ export const QRSync: React.FC<QRSyncProps> = ({
                 <button
                     onClick={() => setMode('export')}
                     className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-medium transition-colors ${mode === 'export'
-                            ? 'bg-white text-indigo-600 shadow-sm'
-                            : 'text-slate-600 hover:text-slate-800'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-slate-600 hover:text-slate-800'
                         }`}
                 >
                     <Upload size={16} />
@@ -136,8 +181,8 @@ export const QRSync: React.FC<QRSyncProps> = ({
                 <button
                     onClick={() => setMode('import')}
                     className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-medium transition-colors ${mode === 'import'
-                            ? 'bg-white text-indigo-600 shadow-sm'
-                            : 'text-slate-600 hover:text-slate-800'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-slate-600 hover:text-slate-800'
                         }`}
                 >
                     <Download size={16} />
