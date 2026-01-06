@@ -28,8 +28,11 @@ export const BookmarkletModal: React.FC<BookmarkletModalProps> = ({ appUrl, onCl
     };
 
     const handleDragStart = (e: React.DragEvent) => {
+        // Set multiple data types for better browser compatibility
         e.dataTransfer.setData('text/plain', bookmarkletCode);
         e.dataTransfer.setData('text/uri-list', bookmarkletCode);
+        // Some browsers use this for bookmark title
+        e.dataTransfer.setData('text/x-moz-url', `${bookmarkletCode}\n+ Add to LinkHaven`);
     };
 
     return (
@@ -43,6 +46,7 @@ export const BookmarkletModal: React.FC<BookmarkletModalProps> = ({ appUrl, onCl
                 <a
                     ref={linkRef}
                     href="#"
+                    title="+ Add to LinkHaven"
                     onClick={(e) => e.preventDefault()}
                     onDragStart={handleDragStart}
                     draggable="true"
