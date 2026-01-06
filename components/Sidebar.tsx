@@ -2,7 +2,7 @@ import React, { useRef } from 'react';
 import {
   Folder as FolderIcon, Layers, Plus, FolderOpen, Trash2, Download,
   UploadCloud, Database, Bookmark, Activity, FileUp, Zap,
-  Shield, Copy, Sparkles
+  Copy, Sparkles, Smartphone
 } from 'lucide-react';
 import { Folder } from '../types';
 
@@ -22,7 +22,7 @@ interface SidebarProps {
   onClearTag?: () => void;
   // Premium features
   onShowDeduplication?: () => void;
-  onShowAuditTrail?: () => void;
+  onShowSync?: () => void;
   isPremium?: boolean;
 }
 
@@ -42,7 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onClearTag,
   // Premium
   onShowDeduplication,
-  onShowAuditTrail,
+  onShowSync,
   isPremium = true, // Default to true for now (will be gated later)
 }) => {
 
@@ -248,13 +248,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span>Find Duplicates</span>
                 </button>
               )}
-              {onShowAuditTrail && (
+              {onShowSync && (
                 <button
-                  onClick={onShowAuditTrail}
+                  onClick={onShowSync}
                   className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-lg transition-colors"
                 >
-                  <Shield size={16} />
-                  <span>Audit Trail</span>
+                  <Smartphone size={16} />
+                  <span>Sync Devices</span>
                 </button>
               )}
             </div>
@@ -313,6 +313,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="p-4 border-t border-slate-800 text-xs text-slate-600 text-center">
         <p>100% Offline • Encrypted</p>
       </div>
-    </div>
+    </div >
   );
 };

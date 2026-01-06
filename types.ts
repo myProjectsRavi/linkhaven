@@ -32,7 +32,7 @@ export type ModalType =
   | 'SNAPSHOT_VIEWER'
   | 'SNAPSHOT_CAPTURE'
   | 'DEDUPLICATION'
-  | 'AUDIT_TRAIL'
+  | 'QR_SYNC'
   | 'CLEANUP_WIZARD'
   | 'PREMIUM_UPGRADE'
   | null;
@@ -53,7 +53,7 @@ export interface TagFilter {
 export interface PremiumFeatures {
   eternalVault: boolean;      // Page snapshots
   deduplication: boolean;     // Fuzzy duplicate finder
-  auditTrail: boolean;        // Forensic audit log
+  qrSync: boolean;            // Multi-device sync via QR
 }
 
 // Premium subscription status

@@ -9,11 +9,12 @@ import { Toast } from './components/Toast';
 import { TagInput } from './components/TagInput';
 import { BookmarkletModal } from './components/BookmarkletModal';
 import { DeduplicationWizard } from './components/DeduplicationWizard';
-import { AuditTrailViewer } from './components/AuditTrailViewer';
+import { SnapshotCapture } from './components/SnapshotCapture';
+import { SnapshotViewer } from './components/SnapshotViewer';
+import { QRSync } from './components/QRSync';
 import { parseImportFile } from './utils/importers';
 import { fetchUrlMetadata } from './utils/metadata';
 import { checkMultipleLinks } from './utils/linkChecker';
-import { audit } from './utils/auditTrail';
 import {
   deriveKey,
   encrypt,
@@ -338,8 +339,6 @@ function App() {
     setNewItemName('');
     setNewFolderParentId('');
     showToast(`Folder "${newFolder.name}" created`, 'success');
-    // Audit logging
-    audit.folderCreated(newFolder);
   };
 
   const handleSaveBookmark = (e: React.FormEvent) => {
@@ -373,8 +372,6 @@ function App() {
       };
       setBookmarks(bookmarks.map(b => b.id === editingBookmarkId ? updatedBookmark : b));
       showToast('Bookmark updated', 'success');
-      // Audit logging
-      audit.bookmarkUpdated(updatedBookmark as Bookmark);
     } else {
       // Create New
       const newBookmark: Bookmark = {
@@ -388,8 +385,6 @@ function App() {
       };
       setBookmarks([newBookmark, ...bookmarks]);
       showToast('Bookmark added', 'success');
-      // Audit logging
-      audit.bookmarkCreated(newBookmark);
     }
 
     // Reset
@@ -419,20 +414,12 @@ function App() {
 
     if (idsToDelete.includes(activeFolderId as string)) setActiveFolderId('ALL');
     showToast('Folder deleted', 'success');
-    // Audit logging
-    if (folderToDelete) {
-      audit.folderDeleted(id, folderToDelete.name);
-    }
   };
 
   const deleteBookmark = (id: string) => {
     const bookmarkToDelete = bookmarks.find(b => b.id === id);
     setBookmarks(bookmarks.filter(b => b.id !== id));
     showToast('Bookmark deleted', 'success');
-    // Audit logging
-    if (bookmarkToDelete) {
-      audit.bookmarkDeleted(id, bookmarkToDelete.title);
-    }
   };
 
   // Auto-fetch metadata
@@ -520,8 +507,6 @@ function App() {
         setBookmarks(pendingImportData.bookmarks);
         showToast('Data restored successfully', 'success');
       }
-      // Audit logging
-      audit.dataImported(pendingImportData.bookmarks.length);
       setPendingImportData(null);
       setModalType(null);
     }
@@ -674,7 +659,7 @@ function App() {
           activeTag={activeTag}
           onClearTag={() => setActiveTag('')}
           onShowDeduplication={() => setModalType('DEDUPLICATION')}
-          onShowAuditTrail={() => setModalType('AUDIT_TRAIL')}
+          onShowSync={() => setModalType('QR_SYNC')}
           isPremium={true}
         />
       </div>
@@ -966,13 +951,28 @@ function App() {
         />
       </Modal>
 
-      {/* Audit Trail Modal */}
+      {/* QR Sync Modal */}
       <Modal
-        isOpen={modalType === 'AUDIT_TRAIL'}
+        isOpen={modalType === 'QR_SYNC'}
         onClose={() => setModalType(null)}
-        title="Audit Trail"
+        title="Sync Devices"
       >
-        <AuditTrailViewer
+        <QRSync
+          folders={folders}
+          bookmarks={bookmarks}
+          onImport={(importedFolders, importedBookmarks) => {
+            // Merge imported data (skip duplicates by ID)
+            const existingFolderIds = new Set(folders.map(f => f.id));
+            const existingBookmarkIds = new Set(bookmarks.map(b => b.id));
+
+            const newFolders = importedFolders.filter(f => !existingFolderIds.has(f.id));
+            const newBookmarks = importedBookmarks.filter(b => !existingBookmarkIds.has(b.id));
+
+            setFolders([...folders, ...newFolders]);
+            setBookmarks([...bookmarks, ...newBookmarks]);
+
+            showToast(`Imported ${newFolders.length} folders and ${newBookmarks.length} bookmarks`, 'success');
+          }}
           onClose={() => setModalType(null)}
         />
       </Modal>
