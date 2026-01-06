@@ -15,6 +15,8 @@ export interface Bookmark {
   tags?: string[];
   linkHealth?: 'alive' | 'dead' | 'unknown' | 'checking';
   lastHealthCheck?: number;
+  hasSnapshot?: boolean;        // Premium: page snapshot exists
+  snapshotId?: string;          // Premium: reference to snapshot
   createdAt: number;
 }
 
@@ -26,6 +28,13 @@ export type ModalType =
   | 'IMPORT_CONFIRMATION'
   | 'BOOKMARKLET'
   | 'HEALTH_CHECK_PROGRESS'
+  // Premium modals
+  | 'SNAPSHOT_VIEWER'
+  | 'SNAPSHOT_CAPTURE'
+  | 'DEDUPLICATION'
+  | 'AUDIT_TRAIL'
+  | 'CLEANUP_WIZARD'
+  | 'PREMIUM_UPGRADE'
   | null;
 
 export interface ViewState {
@@ -38,4 +47,19 @@ export interface ViewState {
 export interface TagFilter {
   tag: string;
   active: boolean;
+}
+
+// Premium feature flags
+export interface PremiumFeatures {
+  eternalVault: boolean;      // Page snapshots
+  deduplication: boolean;     // Fuzzy duplicate finder
+  auditTrail: boolean;        // Forensic audit log
+}
+
+// Premium subscription status
+export interface PremiumStatus {
+  isActive: boolean;
+  plan?: 'monthly' | 'yearly';
+  expiresAt?: number;
+  features: PremiumFeatures;
 }

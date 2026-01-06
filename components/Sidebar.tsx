@@ -1,5 +1,9 @@
 import React, { useRef } from 'react';
-import { Folder as FolderIcon, Layers, Plus, FolderOpen, Trash2, Download, UploadCloud, Database, Bookmark, Activity, FileUp, Zap } from 'lucide-react';
+import {
+  Folder as FolderIcon, Layers, Plus, FolderOpen, Trash2, Download,
+  UploadCloud, Database, Bookmark, Activity, FileUp, Zap,
+  Shield, Copy, Sparkles
+} from 'lucide-react';
 import { Folder } from '../types';
 
 interface SidebarProps {
@@ -16,6 +20,10 @@ interface SidebarProps {
   isCheckingHealth?: boolean;
   activeTag?: string;
   onClearTag?: () => void;
+  // Premium features
+  onShowDeduplication?: () => void;
+  onShowAuditTrail?: () => void;
+  isPremium?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -32,6 +40,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isCheckingHealth = false,
   activeTag,
   onClearTag,
+  // Premium
+  onShowDeduplication,
+  onShowAuditTrail,
+  isPremium = true, // Default to true for now (will be gated later)
 }) => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -68,8 +80,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onClick={() => onSelectFolder(folder.id)}
           style={{ paddingLeft: `${(level * 12) + 12}px` }}
           className={`w-full flex items-center justify-between pr-3 py-2 text-sm rounded-lg transition-colors duration-200 ${isActive
-              ? 'bg-indigo-500/10 text-indigo-400 font-medium'
-              : 'hover:bg-slate-800/50 hover:text-white'
+            ? 'bg-indigo-500/10 text-indigo-400 font-medium'
+            : 'hover:bg-slate-800/50 hover:text-white'
             }`}
         >
           <div className="flex items-center gap-2 overflow-hidden">
@@ -153,8 +165,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 onClick={() => onSelectFolder('ALL')}
                 className={`w-full flex items-center justify-between px-3 py-2.5 text-sm rounded-lg transition-colors duration-200 group ${activeFolderId === 'ALL'
-                    ? 'bg-indigo-500/10 text-indigo-400 font-medium'
-                    : 'hover:bg-slate-800/50 hover:text-white'
+                  ? 'bg-indigo-500/10 text-indigo-400 font-medium'
+                  : 'hover:bg-slate-800/50 hover:text-white'
                   }`}
               >
                 <div className="flex items-center gap-3">
@@ -218,6 +230,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Premium Tools Section */}
+        {isPremium && (
+          <div>
+            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 px-2 flex items-center gap-2">
+              <Sparkles size={10} className="text-amber-400" />
+              <span>Premium Tools</span>
+            </h3>
+            <div className="space-y-1">
+              {onShowDeduplication && (
+                <button
+                  onClick={onShowDeduplication}
+                  className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-lg transition-colors"
+                >
+                  <Copy size={16} />
+                  <span>Find Duplicates</span>
+                </button>
+              )}
+              {onShowAuditTrail && (
+                <button
+                  onClick={onShowAuditTrail}
+                  className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-lg transition-colors"
+                >
+                  <Shield size={16} />
+                  <span>Audit Trail</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Data Management Section */}
         <div>
