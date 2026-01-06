@@ -57,7 +57,7 @@ export const TrashView: React.FC<TrashViewProps> = ({
                     </div>
                     <h3 className="text-xl font-semibold text-slate-700 mb-2">Trash is empty</h3>
                     <p className="text-slate-500 max-w-sm">
-                        Deleted items will appear here for 30 days before being permanently removed.
+                        Deleted items will appear here for 7 days before being permanently removed.
                     </p>
                 </div>
             </div>
@@ -74,7 +74,7 @@ export const TrashView: React.FC<TrashViewProps> = ({
                     </div>
                     <div>
                         <h2 className="text-xl font-bold text-slate-800">Trash</h2>
-                        <p className="text-sm text-slate-500">{trash.length} item{trash.length !== 1 ? 's' : ''} • Auto-deleted after 30 days</p>
+                        <p className="text-sm text-slate-500">{trash.length} item{trash.length !== 1 ? 's' : ''} • Auto-deleted after 7 days</p>
                     </div>
                 </div>
                 <button
@@ -93,7 +93,7 @@ export const TrashView: React.FC<TrashViewProps> = ({
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex items-start gap-3">
                 <AlertTriangle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
                 <div>
-                    <p className="text-sm text-amber-800 font-medium">Items are automatically deleted after 30 days</p>
+                    <p className="text-sm text-amber-800 font-medium">Items are automatically deleted after 7 days</p>
                     <p className="text-xs text-amber-700 mt-1">Restore items to recover them, or delete permanently to free up space.</p>
                 </div>
             </div>
@@ -128,8 +128,8 @@ export const TrashView: React.FC<TrashViewProps> = ({
 
                                 {/* Days Remaining */}
                                 <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium mr-4 ${isUrgent
-                                        ? 'bg-red-100 text-red-700'
-                                        : 'bg-slate-100 text-slate-600'
+                                    ? 'bg-red-100 text-red-700'
+                                    : 'bg-slate-100 text-slate-600'
                                     }`}>
                                     <Clock size={12} />
                                     {daysRemaining} day{daysRemaining !== 1 ? 's' : ''} left

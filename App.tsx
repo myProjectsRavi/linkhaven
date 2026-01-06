@@ -48,6 +48,7 @@ const STORAGE_KEYS = {
   BOOKMARKS: 'lh_bookmarks',
   NOTEBOOKS: 'lh_notebooks',
   NOTES: 'lh_notes',
+  TRASH: 'lh_trash',      // Trash bin items
   SESSION: 'lh_session',
   ENCRYPTED: 'lh_encrypted'
 };
@@ -122,6 +123,7 @@ function App() {
       let bookmarksData = localStorage.getItem(STORAGE_KEYS.BOOKMARKS);
       let notebooksData = localStorage.getItem(STORAGE_KEYS.NOTEBOOKS);
       let notesData = localStorage.getItem(STORAGE_KEYS.NOTES);
+      let trashData = localStorage.getItem(STORAGE_KEYS.TRASH);
 
       if (isEncrypted && key) {
         try {
@@ -129,6 +131,7 @@ function App() {
           if (bookmarksData) bookmarksData = await decrypt(bookmarksData, key);
           if (notebooksData) notebooksData = await decrypt(notebooksData, key);
           if (notesData) notesData = await decrypt(notesData, key);
+          if (trashData) trashData = await decrypt(trashData, key);
         } catch (e) {
           console.error('Decryption failed:', e);
         }
@@ -138,6 +141,14 @@ function App() {
       const loadedBookmarks = bookmarksData ? JSON.parse(bookmarksData) : [];
       const loadedNotebooks = notebooksData ? JSON.parse(notebooksData) : [{ id: 'default-notebook', name: 'General', createdAt: Date.now() }];
       const loadedNotes = notesData ? JSON.parse(notesData) : [];
+
+      // Load trash and auto-cleanup expired items (7-day auto-delete)
+      const loadedTrash: TrashedItem[] = trashData ? JSON.parse(trashData) : [];
+      const now = Date.now();
+      const validTrash = loadedTrash.filter(item => item.autoDeleteAt > now);
+      if (validTrash.length !== loadedTrash.length) {
+        console.log(`Auto-deleted ${loadedTrash.length - validTrash.length} expired trash items`);
+      }
 
       // Ensure tags array exists
       const normalizedBookmarks = loadedBookmarks.map((b: Bookmark) => ({
@@ -153,6 +164,7 @@ function App() {
       setBookmarks(normalizedBookmarks);
       setNotebooks(loadedNotebooks);
       setNotes(normalizedNotes);
+      setTrash(validTrash);
       setDataLoaded(true);
     } catch (e) {
       console.error('Failed to load data:', e);
@@ -169,19 +181,22 @@ function App() {
     foldersToSave: Folder[],
     bookmarksToSave: Bookmark[],
     notebooksToSave: Notebook[],
-    notesToSave: Note[]
+    notesToSave: Note[],
+    trashToSave?: TrashedItem[]
   ) => {
     try {
       let foldersData = JSON.stringify(foldersToSave);
       let bookmarksData = JSON.stringify(bookmarksToSave);
       let notebooksData = JSON.stringify(notebooksToSave);
       let notesData = JSON.stringify(notesToSave);
+      let trashData = trashToSave ? JSON.stringify(trashToSave) : null;
 
       if (cryptoKey && isEncryptionSupported()) {
         foldersData = await encrypt(foldersData, cryptoKey);
         bookmarksData = await encrypt(bookmarksData, cryptoKey);
         notebooksData = await encrypt(notebooksData, cryptoKey);
         notesData = await encrypt(notesData, cryptoKey);
+        if (trashData) trashData = await encrypt(trashData, cryptoKey);
         localStorage.setItem(STORAGE_KEYS.ENCRYPTED, 'true');
       }
 
@@ -189,6 +204,7 @@ function App() {
       localStorage.setItem(STORAGE_KEYS.BOOKMARKS, bookmarksData);
       localStorage.setItem(STORAGE_KEYS.NOTEBOOKS, notebooksData);
       localStorage.setItem(STORAGE_KEYS.NOTES, notesData);
+      if (trashData) localStorage.setItem(STORAGE_KEYS.TRASH, trashData);
     } catch (e) {
       console.error('Failed to save data:', e);
     }
@@ -197,9 +213,9 @@ function App() {
   // --- Effects ---
   useEffect(() => {
     if (dataLoaded) {
-      saveData(folders, bookmarks, notebooks, notes);
+      saveData(folders, bookmarks, notebooks, notes, trash);
     }
-  }, [folders, bookmarks, notebooks, notes, dataLoaded, saveData]);
+  }, [folders, bookmarks, notebooks, notes, trash, dataLoaded, saveData]);
 
   // Handle URL params for bookmarklet
   useEffect(() => {
@@ -518,8 +534,19 @@ function App() {
 
   const deleteBookmark = (id: string) => {
     const bookmarkToDelete = bookmarks.find(b => b.id === id);
+    if (bookmarkToDelete) {
+      const trashedItem: TrashedItem = {
+        id: `trash_${Date.now()}_bookmark`,
+        type: 'bookmark',
+        item: bookmarkToDelete,
+        deletedAt: Date.now(),
+        autoDeleteAt: Date.now() + (7 * 24 * 60 * 60 * 1000), // 7 days
+        originalLocation: bookmarkToDelete.folderId,
+      };
+      setTrash(prev => [...prev, trashedItem]);
+    }
     setBookmarks(bookmarks.filter(b => b.id !== id));
-    showToast('Bookmark deleted', 'success');
+    showToast('Bookmark moved to trash', 'success');
   };
 
   // Auto-fetch metadata
@@ -665,14 +692,14 @@ function App() {
           type: 'notebook',
           item: notebook,
           deletedAt: Date.now(),
-          autoDeleteAt: Date.now() + (30 * 24 * 60 * 60 * 1000),
+          autoDeleteAt: Date.now() + (7 * 24 * 60 * 60 * 1000), // 7 days
         },
         ...notebookNotes.map((note, i) => ({
           id: `trash_${Date.now()}_note_${i}`,
           type: 'note' as const,
           item: note,
           deletedAt: Date.now(),
-          autoDeleteAt: Date.now() + (30 * 24 * 60 * 60 * 1000),
+          autoDeleteAt: Date.now() + (7 * 24 * 60 * 60 * 1000), // 7 days
         }))
       ];
       setTrash([...trash, ...trashedItems]);
@@ -691,7 +718,7 @@ function App() {
         type: 'note',
         item: note,
         deletedAt: Date.now(),
-        autoDeleteAt: Date.now() + (30 * 24 * 60 * 60 * 1000),
+        autoDeleteAt: Date.now() + (7 * 24 * 60 * 60 * 1000), // 7 days
         originalLocation: note.notebookId,
       };
       setTrash([...trash, trashedItem]);
@@ -724,15 +751,6 @@ function App() {
     setTrash([]);
     showToast('Trash emptied', 'success');
   };
-
-  // Auto-cleanup trash on load (30-day expiry)
-  useEffect(() => {
-    const now = Date.now();
-    const validTrash = trash.filter(item => item.autoDeleteAt > now);
-    if (validTrash.length !== trash.length) {
-      setTrash(validTrash);
-    }
-  }, []);
 
   // Export / Import Handlers
   const handleExport = () => {
