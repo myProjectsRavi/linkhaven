@@ -8,6 +8,8 @@ import { LockScreen } from './components/LockScreen';
 import { Toast } from './components/Toast';
 import { TagInput } from './components/TagInput';
 import { BookmarkletModal } from './components/BookmarkletModal';
+import { DeduplicationWizard } from './components/DeduplicationWizard';
+import { AuditTrailViewer } from './components/AuditTrailViewer';
 import { parseImportFile } from './utils/importers';
 import { fetchUrlMetadata } from './utils/metadata';
 import { checkMultipleLinks } from './utils/linkChecker';
@@ -650,6 +652,9 @@ function App() {
           isCheckingHealth={isCheckingHealth}
           activeTag={activeTag}
           onClearTag={() => setActiveTag('')}
+          onShowDeduplication={() => setModalType('DEDUPLICATION')}
+          onShowAuditTrail={() => setModalType('AUDIT_TRAIL')}
+          isPremium={true}
         />
       </div>
 
@@ -920,6 +925,33 @@ function App() {
       >
         <BookmarkletModal
           appUrl={window.location.origin}
+          onClose={() => setModalType(null)}
+        />
+      </Modal>
+
+      {/* Deduplication Modal */}
+      <Modal
+        isOpen={modalType === 'DEDUPLICATION'}
+        onClose={() => setModalType(null)}
+        title="Find Duplicates"
+      >
+        <DeduplicationWizard
+          bookmarks={bookmarks}
+          onMerge={(keepId, deleteIds) => {
+            setBookmarks(prev => prev.filter(b => !deleteIds.includes(b.id)));
+            showToast(`Merged ${deleteIds.length} duplicate(s)`, 'success');
+          }}
+          onClose={() => setModalType(null)}
+        />
+      </Modal>
+
+      {/* Audit Trail Modal */}
+      <Modal
+        isOpen={modalType === 'AUDIT_TRAIL'}
+        onClose={() => setModalType(null)}
+        title="Audit Trail"
+      >
+        <AuditTrailViewer
           onClose={() => setModalType(null)}
         />
       </Modal>
