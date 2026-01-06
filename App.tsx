@@ -24,6 +24,8 @@ import { PremiumModal } from './components/PremiumModal';
 import { parseImportFile } from './utils/importers';
 import { fetchUrlMetadata } from './utils/metadata';
 import { checkMultipleLinks } from './utils/linkChecker';
+import { SnapshotDB } from './utils/SnapshotDB';
+import { extractContent, isExtractable, formatBytes } from './utils/contentExtractor';
 import {
   deriveKey,
   encrypt,
@@ -103,6 +105,9 @@ function App() {
 
   // Trash bin state
   const [trash, setTrash] = useState<TrashedItem[]>([]);
+
+  // Eternal Vault - Snapshot viewing state
+  const [viewingSnapshotBookmark, setViewingSnapshotBookmark] = useState<Bookmark | null>(null);
 
   // Import State
   const [pendingImportData, setPendingImportData] = useState<{ folders: Folder[], bookmarks: Bookmark[] } | null>(null);
@@ -322,6 +327,72 @@ function App() {
 
     return result.sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
   }, [notes, activeNotebookId, searchQuery, activeTag]);
+
+  // --- Eternal Vault: Sync SnapshotDB with cryptoKey ---
+  useEffect(() => {
+    SnapshotDB.setCryptoKey(cryptoKey);
+  }, [cryptoKey]);
+
+  // --- Eternal Vault: Save snapshot handler ---
+  const handleSaveSnapshot = async (bookmark: Bookmark): Promise<void> => {
+    try {
+      // Check if URL is extractable
+      if (!isExtractable(bookmark.url)) {
+        showToast('This file type cannot be saved offline', 'error');
+        return;
+      }
+
+      showToast('Saving page...', 'success');
+
+      // Extract content using Readability.js
+      const extracted = await extractContent(bookmark.url);
+
+      if (!extracted.success) {
+        showToast(extracted.error || 'Could not extract page content', 'error');
+        return;
+      }
+
+      // Save to IndexedDB
+      const metadata = await SnapshotDB.saveSnapshot(bookmark.id, extracted.content, {
+        originalUrl: bookmark.url,
+        title: extracted.title,
+        byline: extracted.byline,
+        siteName: extracted.siteName,
+        excerpt: extracted.excerpt,
+      });
+
+      // Update bookmark with snapshot metadata
+      setBookmarks(prev => prev.map(b =>
+        b.id === bookmark.id
+          ? {
+            ...b,
+            snapshot: {
+              savedAt: metadata.savedAt,
+              size: metadata.compressedSize,
+              excerpt: metadata.excerpt,
+            }
+          }
+          : b
+      ));
+
+      showToast(
+        `Page saved! (${formatBytes(metadata.compressedSize)}, ${metadata.compressionRatio}% compressed)`,
+        'success'
+      );
+    } catch (error) {
+      console.error('Failed to save snapshot:', error);
+      showToast('Failed to save page. Please try again.', 'error');
+    }
+  };
+
+  // --- Eternal Vault: View snapshot handler ---
+  const handleViewSnapshot = (bookmark: Bookmark) => {
+    if (!bookmark.snapshot) {
+      showToast('No saved page found', 'error');
+      return;
+    }
+    setViewingSnapshotBookmark(bookmark);
+  };
 
   const noteCounts = useMemo(() => {
     const counts: Record<string, number> = { 'ALL_NOTES': notes.length };
@@ -1151,6 +1222,8 @@ function App() {
                     onDeleteBookmark={deleteBookmark}
                     onEditBookmark={openEditModal}
                     onTagClick={handleTagClick}
+                    onSaveSnapshot={handleSaveSnapshot}
+                    onViewSnapshot={handleViewSnapshot}
                     searchQuery={searchQuery}
                     folders={folders}
                   />
@@ -1645,6 +1718,15 @@ function App() {
           onClose={() => setModalType(null)}
         />
       </Modal>
+
+      {/* Eternal Vault - Snapshot Viewer */}
+      {viewingSnapshotBookmark && (
+        <SnapshotViewer
+          bookmarkId={viewingSnapshotBookmark.id}
+          bookmarkUrl={viewingSnapshotBookmark.url}
+          onClose={() => setViewingSnapshotBookmark(null)}
+        />
+      )}
 
     </div>
   );

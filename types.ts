@@ -15,8 +15,12 @@ export interface Bookmark {
   tags?: string[];
   linkHealth?: 'alive' | 'dead' | 'unknown' | 'checking';
   lastHealthCheck?: number;
-  hasSnapshot?: boolean;        // Premium: page snapshot exists
-  snapshotId?: string;          // Premium: reference to snapshot
+  // Eternal Vault - Offline page snapshots
+  snapshot?: {
+    savedAt: number;      // When the snapshot was saved
+    size: number;         // Compressed size in bytes
+    excerpt: string;      // First 200 chars for preview
+  };
   createdAt: number;
 }
 

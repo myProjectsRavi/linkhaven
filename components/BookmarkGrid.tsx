@@ -1,5 +1,5 @@
-import React from 'react';
-import { ExternalLink, Trash2, Globe, Edit2, Tag, AlertCircle, CheckCircle, HelpCircle, Loader } from 'lucide-react';
+import React, { useState } from 'react';
+import { ExternalLink, Trash2, Globe, Edit2, Tag, AlertCircle, CheckCircle, Loader, Archive, Eye } from 'lucide-react';
 import { Bookmark, Folder } from '../types';
 
 interface BookmarkGridProps {
@@ -8,6 +8,8 @@ interface BookmarkGridProps {
   onDeleteBookmark: (id: string) => void;
   onEditBookmark: (bookmark: Bookmark) => void;
   onTagClick?: (tag: string) => void;
+  onSaveSnapshot?: (bookmark: Bookmark) => Promise<void>;
+  onViewSnapshot?: (bookmark: Bookmark) => void;
   searchQuery: string;
 }
 
@@ -61,9 +63,30 @@ export const BookmarkGrid: React.FC<BookmarkGridProps> = ({
   onDeleteBookmark,
   onEditBookmark,
   onTagClick,
+  onSaveSnapshot,
+  onViewSnapshot,
   searchQuery,
   folders
 }) => {
+  const [savingSnapshotIds, setSavingSnapshotIds] = useState<Set<string>>(new Set());
+
+  const handleSaveSnapshot = async (e: React.MouseEvent, bookmark: Bookmark) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!onSaveSnapshot || savingSnapshotIds.has(bookmark.id)) return;
+
+    setSavingSnapshotIds(prev => new Set([...prev, bookmark.id]));
+    try {
+      await onSaveSnapshot(bookmark);
+    } finally {
+      setSavingSnapshotIds(prev => {
+        const next = new Set(prev);
+        next.delete(bookmark.id);
+        return next;
+      });
+    }
+  };
+
 
   const getFolderName = (folderId: string) => {
     const f = folders.find(fo => fo.id === folderId);
@@ -90,12 +113,23 @@ export const BookmarkGrid: React.FC<BookmarkGridProps> = ({
         <div
           key={bookmark.id}
           className={`group bg-white rounded-xl border shadow-sm hover:shadow-md transition-all duration-200 flex flex-col relative overflow-hidden ${bookmark.linkHealth === 'dead'
-              ? 'border-red-200 bg-red-50/30'
-              : 'border-slate-200 hover:border-indigo-200'
+            ? 'border-red-200 bg-red-50/30'
+            : 'border-slate-200 hover:border-indigo-200'
             }`}
         >
           {/* Health Badge */}
           <HealthBadge status={bookmark.linkHealth} />
+
+          {/* Snapshot Saved Badge */}
+          {bookmark.snapshot && (
+            <span
+              className="absolute top-2 left-2 px-1.5 py-0.5 bg-emerald-100 rounded-full flex items-center gap-1 text-[10px] font-medium text-emerald-700"
+              title={`Page saved offline on ${new Date(bookmark.snapshot.savedAt).toLocaleDateString()}`}
+            >
+              <Archive size={10} />
+              Saved
+            </span>
+          )}
 
           {/* Main Clickable Area - Draggable */}
           <a
@@ -165,6 +199,35 @@ export const BookmarkGrid: React.FC<BookmarkGridProps> = ({
             </div>
 
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              {/* Snapshot buttons */}
+              {bookmark.snapshot ? (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onViewSnapshot?.(bookmark);
+                  }}
+                  className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded"
+                  title={`View saved page (saved ${new Date(bookmark.snapshot.savedAt).toLocaleDateString()})`}
+                >
+                  <Eye size={12} />
+                </button>
+              ) : (
+                <button
+                  onClick={(e) => handleSaveSnapshot(e, bookmark)}
+                  disabled={savingSnapshotIds.has(bookmark.id)}
+                  className={`p-1.5 rounded ${savingSnapshotIds.has(bookmark.id)
+                    ? 'text-indigo-400 cursor-wait'
+                    : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50'
+                    }`}
+                  title="Save page offline"
+                >
+                  {savingSnapshotIds.has(bookmark.id) ? (
+                    <Loader size={12} className="animate-spin" />
+                  ) : (
+                    <Archive size={12} />
+                  )}
+                </button>
+              )}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
