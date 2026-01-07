@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ExternalLink, Trash2, Globe, Edit2, Tag, AlertCircle, CheckCircle, Loader, Archive, Eye } from 'lucide-react';
+import { ExternalLink, Trash2, Globe, Edit2, Tag, AlertCircle, CheckCircle, Loader, Download, Eye, HardDrive } from 'lucide-react';
 import { Bookmark, Folder } from '../types';
 
 interface BookmarkGridProps {
@@ -120,14 +120,14 @@ export const BookmarkGrid: React.FC<BookmarkGridProps> = ({
           {/* Health Badge */}
           <HealthBadge status={bookmark.linkHealth} />
 
-          {/* Snapshot Saved Badge */}
+          {/* Snapshot Saved Badge - More visible indicator */}
           {bookmark.snapshot && (
             <span
-              className="absolute top-2 left-2 px-1.5 py-0.5 bg-emerald-100 rounded-full flex items-center gap-1 text-[10px] font-medium text-emerald-700"
+              className="absolute top-2 left-2 px-2 py-1 bg-emerald-500 text-white rounded-md flex items-center gap-1 text-[10px] font-semibold shadow-sm"
               title={`Page saved offline on ${new Date(bookmark.snapshot.savedAt).toLocaleDateString()}`}
             >
-              <Archive size={10} />
-              Saved
+              <HardDrive size={10} />
+              Offline
             </span>
           )}
 
@@ -224,7 +224,7 @@ export const BookmarkGrid: React.FC<BookmarkGridProps> = ({
                   {savingSnapshotIds.has(bookmark.id) ? (
                     <Loader size={12} className="animate-spin" />
                   ) : (
-                    <Archive size={12} />
+                    <Download size={12} />
                   )}
                 </button>
               )}

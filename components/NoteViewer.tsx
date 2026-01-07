@@ -54,9 +54,9 @@ export const NoteViewer: React.FC<NoteViewerProps> = ({ note, notebooks, onClose
 
             {/* Content */}
             <div className="bg-slate-50 rounded-xl p-4 min-h-[200px] max-h-[400px] overflow-y-auto">
-                <pre className="whitespace-pre-wrap font-sans text-slate-700 leading-relaxed text-sm">
+                <div className="whitespace-pre-wrap break-words overflow-wrap-anywhere font-sans text-slate-700 leading-relaxed text-sm">
                     {note.content}
-                </pre>
+                </div>
             </div>
 
             {/* Actions */}

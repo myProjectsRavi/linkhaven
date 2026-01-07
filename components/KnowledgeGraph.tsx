@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { Search, ZoomIn, ZoomOut, Maximize2, AlertCircle, Link2, FileText, Tag, Globe } from 'lucide-react';
+import { Search, ZoomIn, ZoomOut, Maximize2, AlertCircle, Link2, FileText, Tag, Globe, HelpCircle, Sparkles } from 'lucide-react';
 import { Bookmark, Note, GraphNode, KnowledgeGraphData } from '../types';
 import { buildKnowledgeGraph, applyForceLayout, findOrphans } from '../utils/graphBuilder';
 
@@ -223,15 +223,18 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
             {/* Toolbar */}
             <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-slate-200">
                 <div className="flex items-center gap-4">
-                    <h2 className="text-lg font-semibold text-slate-800">Knowledge Graph</h2>
+                    <div className="flex items-center gap-2">
+                        <Sparkles size={20} className="text-indigo-500" />
+                        <h2 className="text-lg font-semibold text-slate-800">Your Connection Map</h2>
+                    </div>
                     <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
                         {(['all', 'bookmarks', 'notes', 'tags'] as const).map(type => (
                             <button
                                 key={type}
                                 onClick={() => setFilter(type)}
                                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${filter === type
-                                        ? 'bg-white text-slate-800 shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-700'
+                                    ? 'bg-white text-slate-800 shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700'
                                     }`}
                             >
                                 {type.charAt(0).toUpperCase() + type.slice(1)}
@@ -330,25 +333,41 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                     </div>
                 )}
 
-                {/* Legend */}
-                <div className="absolute top-4 right-4 bg-white/90 backdrop-blur rounded-lg shadow border border-slate-200 p-3">
-                    <div className="space-y-1.5 text-xs">
+                {/* Legend with user-friendly descriptions */}
+                <div className="absolute top-4 right-4 bg-white/95 backdrop-blur rounded-xl shadow-lg border border-slate-200 p-4 max-w-[200px]">
+                    <div className="flex items-center gap-2 mb-3">
+                        <HelpCircle size={14} className="text-indigo-500" />
+                        <span className="text-xs font-semibold text-slate-700">What am I seeing?</span>
+                    </div>
+                    <p className="text-xs text-slate-500 mb-3">
+                        This shows how your bookmarks, notes, and tags connect to each other.
+                    </p>
+                    <div className="space-y-2 text-xs">
                         <div className="flex items-center gap-2">
                             <div className="w-3 h-3 rounded-full bg-blue-500" />
-                            <span className="text-slate-600">Bookmark ({bookmarks.length})</span>
+                            <div>
+                                <span className="text-slate-700 font-medium">Bookmarks</span>
+                                <span className="text-slate-400 ml-1">({bookmarks.length})</span>
+                            </div>
                         </div>
                         <div className="flex items-center gap-2">
                             <div className="w-3 h-3 rounded-full bg-purple-500" />
-                            <span className="text-slate-600">Note ({notes.length})</span>
+                            <div>
+                                <span className="text-slate-700 font-medium">Notes</span>
+                                <span className="text-slate-400 ml-1">({notes.length})</span>
+                            </div>
                         </div>
                         <div className="flex items-center gap-2">
                             <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                            <span className="text-slate-600">Tag</span>
+                            <span className="text-slate-700 font-medium">Tags</span>
                         </div>
                         <div className="flex items-center gap-2">
                             <div className="w-3 h-3 rounded-full bg-amber-500" />
-                            <span className="text-slate-600">Domain</span>
+                            <span className="text-slate-700 font-medium">Websites</span>
                         </div>
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-slate-100">
+                        <p className="text-xs text-slate-400">Click any dot to see connections</p>
                     </div>
                 </div>
 
