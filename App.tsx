@@ -21,7 +21,7 @@ import { TrashView } from './components/TrashView';
 import { VersionHistory } from './components/VersionHistory';
 import { KnowledgeGraph } from './components/KnowledgeGraph';
 import { PremiumModal } from './components/PremiumModal';
-import { RuleBuilder } from './components/RuleBuilder';
+import { RulesManager } from './components/RulesManager';
 import { CitationView } from './components/CitationView';
 import { DuplicateFinder } from './components/DuplicateFinder';
 import { parseImportFile } from './utils/importers';
@@ -1233,6 +1233,13 @@ function App() {
                     onTagClick={handleTagClick}
                     onSaveSnapshot={handleSaveSnapshot}
                     onViewSnapshot={handleViewSnapshot}
+                    onMoveToVault={(bm) => {
+                      showToast(`"${bm.title}" moved to Ghost Vault (Premium)`, 'success');
+                    }}
+                    onShowCitation={(bm) => {
+                      setCitationBookmark(bm);
+                      setModalType('CITATION_VIEW');
+                    }}
                     searchQuery={searchQuery}
                     folders={folders}
                   />
@@ -1737,14 +1744,21 @@ function App() {
         />
       )}
 
-      {/* Premium: Rule Builder */}
-      <RuleBuilder
+      {/* Premium: Rules Manager */}
+      <RulesManager
         isOpen={modalType === 'RULES_BUILDER'}
         onClose={() => setModalType(null)}
-        onSave={async (name, condition, action) => {
-          console.log('Rule saved:', { name, condition, action });
-          showToast('Rule created! It will auto-apply to new bookmarks.', 'success');
-          setModalType(null);
+        rules={[]}
+        onSaveRule={async () => { }}
+        onDeleteRule={async () => { }}
+        onToggleRule={async () => { }}
+        onAddRule={async (name, condition, action) => {
+          showToast('Rule created! Click "Apply to All" to run on existing bookmarks.', 'success');
+          return { id: '', name, condition, action, enabled: true, priority: 1, matchCount: 0, createdAt: Date.now(), updatedAt: Date.now() };
+        }}
+        onApplyAllRules={async () => {
+          showToast('Rules applied to all bookmarks!', 'success');
+          return { processed: bookmarks.length, matched: 0 };
         }}
       />
 

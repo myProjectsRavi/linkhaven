@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { ExternalLink, Trash2, Globe, Edit2, Tag, AlertCircle, CheckCircle, Loader, Download, Eye, HardDrive } from 'lucide-react';
+import { ExternalLink, Trash2, Globe, Edit2, Tag, AlertCircle, CheckCircle, Loader, Download, Eye, HardDrive, Lock, BookOpen } from 'lucide-react';
 import { Bookmark, Folder } from '../types';
+import { isAcademicUrl } from '../utils/citationParser';
 
 /**
  * OPTIMIZED BOOKMARK GRID
@@ -22,6 +23,8 @@ interface BookmarkGridProps {
   onTagClick?: (tag: string) => void;
   onSaveSnapshot?: (bookmark: Bookmark) => Promise<void>;
   onViewSnapshot?: (bookmark: Bookmark) => void;
+  onMoveToVault?: (bookmark: Bookmark) => void;
+  onShowCitation?: (bookmark: Bookmark) => void;
   searchQuery: string;
 }
 
@@ -79,8 +82,11 @@ const BookmarkCard = React.memo<{
   onTagClick?: (tag: string) => void;
   onSaveSnapshot?: () => Promise<void>;
   onViewSnapshot?: () => void;
+  onMoveToVault?: () => void;
+  onShowCitation?: () => void;
   isSaving: boolean;
-}>(({ bookmark, folderName, onDelete, onEdit, onTagClick, onSaveSnapshot, onViewSnapshot, isSaving }) => (
+  isAcademic: boolean;
+}>(({ bookmark, folderName, onDelete, onEdit, onTagClick, onSaveSnapshot, onViewSnapshot, onMoveToVault, onShowCitation, isSaving, isAcademic }) => (
   <div
     className={`group bg-white rounded-xl border shadow-sm hover:shadow-md transition-all duration-200 flex flex-col relative overflow-hidden ${bookmark.linkHealth === 'dead'
       ? 'border-red-200 bg-red-50/30'
@@ -221,6 +227,30 @@ const BookmarkCard = React.memo<{
         >
           <Trash2 size={12} />
         </button>
+        {onMoveToVault && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onMoveToVault();
+            }}
+            className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded"
+            title="Move to Ghost Vault"
+          >
+            <Lock size={12} />
+          </button>
+        )}
+        {isAcademic && onShowCitation && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onShowCitation();
+            }}
+            className="p-1.5 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50 rounded"
+            title="Generate Citation"
+          >
+            <BookOpen size={12} />
+          </button>
+        )}
       </div>
     </div>
   </div>
@@ -235,6 +265,8 @@ export const BookmarkGrid: React.FC<BookmarkGridProps> = ({
   onTagClick,
   onSaveSnapshot,
   onViewSnapshot,
+  onMoveToVault,
+  onShowCitation,
   searchQuery,
   folders
 }) => {
@@ -293,7 +325,10 @@ export const BookmarkGrid: React.FC<BookmarkGridProps> = ({
           onTagClick={onTagClick}
           onSaveSnapshot={() => handleSaveSnapshot(bookmark)}
           onViewSnapshot={() => onViewSnapshot?.(bookmark)}
+          onMoveToVault={onMoveToVault ? () => onMoveToVault(bookmark) : undefined}
+          onShowCitation={onShowCitation ? () => onShowCitation(bookmark) : undefined}
           isSaving={savingSnapshotIds.has(bookmark.id)}
+          isAcademic={isAcademicUrl(bookmark.url)}
         />
       ))}
     </div>
