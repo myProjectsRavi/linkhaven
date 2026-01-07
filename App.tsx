@@ -334,12 +334,23 @@ function App() {
   }, [bookmarks, vaultBookmarks, isVaultMode, isVaultUnlocked, activeFolderId, searchQuery, activeTag]);
 
   const bookmarkCounts = useMemo(() => {
+    // In vault mode, show vault bookmark counts (and 0 for others since vault = entire site in vault mode)
+    if (isVaultMode && isVaultUnlocked) {
+      const counts: Record<string, number> = { 'ALL': vaultBookmarks.length };
+      // Vault bookmarks don't have folder structure, show 0 for all folders
+      folders.forEach(f => {
+        counts[f.id] = 0;
+      });
+      return counts;
+    }
+
+    // Normal mode - show regular bookmark counts
     const counts: Record<string, number> = { 'ALL': bookmarks.length };
     folders.forEach(f => {
       counts[f.id] = bookmarks.filter(b => b.folderId === f.id).length;
     });
     return counts;
-  }, [bookmarks, folders]);
+  }, [bookmarks, vaultBookmarks, folders, isVaultMode, isVaultUnlocked]);
 
 
   const filteredNotes = useMemo(() => {
@@ -436,12 +447,21 @@ function App() {
   };
 
   const noteCounts = useMemo(() => {
+    // In vault mode, show 0 for notes (vault mode = entire site focuses on vault bookmarks)
+    if (isVaultMode && isVaultUnlocked) {
+      const counts: Record<string, number> = { 'ALL_NOTES': 0 };
+      notebooks.forEach(nb => {
+        counts[nb.id] = 0;
+      });
+      return counts;
+    }
+
     const counts: Record<string, number> = { 'ALL_NOTES': notes.length };
     notebooks.forEach(nb => {
       counts[nb.id] = notes.filter(n => n.notebookId === nb.id).length;
     });
     return counts;
-  }, [notes, notebooks]);
+  }, [notes, notebooks, isVaultMode, isVaultUnlocked]);
 
   const activeFolderName = useMemo(() => {
     if (activeTag) return `Tag: #${activeTag}`;
@@ -2025,7 +2045,24 @@ function App() {
           }
           return success;
         }}
-        onBackupNow={autoBackup.backupNow}
+        onBackupNow={async () => {
+          // Update data reference before backup
+          autoBackup.updateData({
+            folders,
+            bookmarks,
+            notebooks,
+            notes,
+            vaultBookmarks,
+            rules: rulesEngine.rules,
+          });
+          const success = await autoBackup.backupNow();
+          if (success) {
+            showToast('Backup saved successfully!', 'success');
+          } else {
+            showToast('Backup failed. Please try again.', 'error');
+          }
+          return success;
+        }}
         onDisableBackup={() => {
           autoBackup.disableBackup();
           showToast('Auto-backup disabled.', 'success');
