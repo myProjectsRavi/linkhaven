@@ -112,6 +112,78 @@ newTitle, newUrl, newDesc, newTags...
 
 ---
 
+## Custom Hooks (`hooks/`)
+
+> **IMPORTANT**: When adding new features, use these hooks instead of inline logic.
+
+### useStorage
+
+Encrypted localStorage operations. Use for any data persistence.
+
+```typescript
+import { useStorage } from './hooks';
+
+const { loadData, saveData, saveCollection } = useStorage(cryptoKey);
+
+// Load all data with decryption
+const data = await loadData();
+
+// Save individual collection
+await saveCollection('BOOKMARKS', bookmarks);
+```
+
+### useAuth
+
+PIN verification, session management, auto-lock timer.
+
+```typescript
+import { useAuth } from './hooks';
+
+const { 
+  hasPin, 
+  isAuthenticated, 
+  cryptoKey,
+  handleUnlock,
+  handleSetupPin,
+  handleLock 
+} = useAuth();
+
+// Unlock with PIN
+const success = await handleUnlock('1234');
+```
+
+### useToast
+
+Toast notifications with auto-dismiss.
+
+```typescript
+import { useToast } from './hooks';
+
+const { toast, showToast } = useToast();
+
+// Show notification
+showToast('Bookmark saved!', 'success');
+showToast('Error occurred', 'error');
+```
+
+### useKeyboardShortcuts
+
+Global keyboard shortcuts (Ctrl+K, Ctrl+B, etc).
+
+```typescript
+import { useKeyboardShortcuts } from './hooks';
+
+useKeyboardShortcuts({
+  onSearch: () => searchInputRef.current?.focus(),
+  onAddBookmark: () => setModalType('ADD_BOOKMARK'),
+  onAddNote: () => setModalType('ADD_NOTE'),
+  onLock: handleLock,
+  onEscape: () => setModalType(null)
+}, isAuthenticated);
+```
+
+---
+
 ## Key Functions
 
 | Function | Purpose |
@@ -149,15 +221,22 @@ User Action → Event Handler → State Update → Re-render
 2. Add callback prop to `NotesGrid.tsx`
 3. Wire onClick in note card
 
+### Adding new features (RECOMMENDED):
+1. Use `useToast()` instead of inline toast state
+2. Use `useAuth()` for authentication logic
+3. Use `useStorage()` for encrypted persistence
+4. Use `useKeyboardShortcuts()` for shortcuts
+
 ---
 
 ## File Structure
 ```
 /
-├── App.tsx              # Main application
+├── App.tsx              # Main application (1700+ lines)
 ├── types.ts             # TypeScript interfaces
 ├── index.css            # Global styles
-├── main.tsx             # Entry point
+├── index.tsx            # Entry point
+├── TODOs.md             # Browser extension implementation guide
 ├── components/
 │   ├── Modal.tsx
 │   ├── Sidebar.tsx
@@ -168,12 +247,25 @@ User Action → Event Handler → State Update → Re-render
 │   ├── SecureNoteShare.tsx
 │   ├── UnlockNote.tsx
 │   ├── NoteViewer.tsx
-│   ├── NotebookSync.tsx
-│   ├── TagInput.tsx
+│   ├── SnapshotViewer.tsx   # Eternal Vault reader mode
+│   ├── KnowledgeGraph.tsx   # Connection Map visualization
+│   ├── TrashView.tsx        # 7-day trash recovery
+│   ├── VersionHistory.tsx   # Note version history
 │   └── ...
+├── hooks/
+│   ├── index.ts             # Central export
+│   ├── useStorage.ts        # Encrypted localStorage
+│   ├── useAuth.ts           # PIN/session management
+│   ├── useToast.ts          # Toast notifications
+│   └── useKeyboardShortcuts.ts
 └── utils/
-    ├── importers.ts     # File import parsing
-    └── metadata.ts      # URL metadata fetching
+    ├── crypto.ts            # AES-256-GCM encryption
+    ├── importers.ts         # File import parsing
+    ├── metadata.ts          # URL metadata fetching
+    ├── linkChecker.ts       # Dead link detection
+    ├── SnapshotDB.ts        # IndexedDB for snapshots
+    ├── contentExtractor.ts  # Readability.js extraction
+    └── graphBuilder.ts      # Knowledge graph builder
 ```
 
 ---
@@ -190,7 +282,11 @@ npm run preview  # Preview production build
 
 ## Deployment
 
-Netlify auto-deploys on every push to `main` branch.
+Vercel auto-deploys on every push to `main` branch.
+
+**Live URLs**:
+- Vercel: https://linkhaven-beige.vercel.app
+- Netlify: https://my-linkhaven.netlify.app
 
 Manual deploy:
 ```bash
@@ -205,4 +301,5 @@ git add -A && git commit -m "message" && git push origin main
 - [ ] Image attachments in notes
 - [ ] PDF export for notes
 - [ ] Cross-device sync via cloud
-- [ ] Browser extension for quick save
+- [x] Browser extension for quick save (see TODOs.md)
+
