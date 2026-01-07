@@ -29,7 +29,7 @@ import { fetchUrlMetadata } from './utils/metadata';
 import { checkMultipleLinks } from './utils/linkChecker';
 import { SnapshotDB } from './utils/SnapshotDB';
 import { extractContent, isExtractable, formatBytes } from './utils/contentExtractor';
-import { useCitations, useRules, useSimilarity } from './hooks';
+import { useCitations, useRules } from './hooks';
 import {
   deriveKey,
   encrypt,
@@ -119,6 +119,9 @@ function App() {
   // Premium Features State
   const [citationBookmark, setCitationBookmark] = useState<Bookmark | null>(null);
   const citations = useCitations();
+
+  // Rules Engine State
+  const rulesEngine = useRules(cryptoKey);
 
   // Health Check State
   const [isCheckingHealth, setIsCheckingHealth] = useState(false);
@@ -457,7 +460,7 @@ function App() {
     }
   };
 
-  const handleSetupPin = async (newPin: string) => {
+  const handleSetupPin = async (newPin: string, vaultPin?: string) => {
     // SECURITY: Never store the PIN itself!
     // Instead, create an encrypted canary that can only be decrypted with correct PIN
 
@@ -469,6 +472,15 @@ function App() {
     // Create and store encrypted canary (this proves correct PIN without storing it)
     const encryptedCanary = await createVerificationCanary(key);
     localStorage.setItem(STORAGE_KEYS.CANARY, encryptedCanary);
+
+    // Store vault PIN hash if provided (for Ghost Vault)
+    if (vaultPin) {
+      const vaultSalt = generateSalt();
+      const vaultKey = await deriveKey(vaultPin, vaultSalt);
+      const vaultCanary = await createVerificationCanary(vaultKey);
+      localStorage.setItem('lh_vault_salt', arrayToBase64(vaultSalt));
+      localStorage.setItem('lh_vault_canary', vaultCanary);
+    }
 
     setHasPin(true);
     sessionStorage.setItem(STORAGE_KEYS.SESSION, 'true');
@@ -569,7 +581,7 @@ function App() {
       showToast('Bookmark updated', 'success');
     } else {
       // Create New
-      const newBookmark: Bookmark = {
+      let newBookmark: Bookmark = {
         id: generateId(),
         folderId,
         title: title,
@@ -578,6 +590,17 @@ function App() {
         tags: newItemTags,
         createdAt: Date.now()
       };
+
+      // AUTO-APPLY RULES to new bookmarks
+      if (rulesEngine.enabledRules.length > 0) {
+        const { result, matchedRules } = rulesEngine.processBookmark(newBookmark, folders);
+        if (matchedRules.length > 0) {
+          newBookmark = result;
+          matchedRules.forEach(ruleId => rulesEngine.recordMatch(ruleId));
+          showToast(`\u2728 ${matchedRules.length} rule(s) applied`, 'success');
+        }
+      }
+
       setBookmarks([newBookmark, ...bookmarks]);
       showToast('Bookmark added', 'success');
     }
@@ -1748,17 +1771,32 @@ function App() {
       <RulesManager
         isOpen={modalType === 'RULES_BUILDER'}
         onClose={() => setModalType(null)}
-        rules={[]}
-        onSaveRule={async () => { }}
-        onDeleteRule={async () => { }}
-        onToggleRule={async () => { }}
+        rules={rulesEngine.rules}
+        onSaveRule={rulesEngine.saveRule}
+        onDeleteRule={rulesEngine.deleteRule}
+        onToggleRule={rulesEngine.toggleRule}
         onAddRule={async (name, condition, action) => {
-          showToast('Rule created! Click "Apply to All" to run on existing bookmarks.', 'success');
-          return { id: '', name, condition, action, enabled: true, priority: 1, matchCount: 0, createdAt: Date.now(), updatedAt: Date.now() };
+          const rule = await rulesEngine.addRule(name, condition, action);
+          showToast('Rule created! New bookmarks will auto-apply this rule.', 'success');
+          return rule;
         }}
         onApplyAllRules={async () => {
-          showToast('Rules applied to all bookmarks!', 'success');
-          return { processed: bookmarks.length, matched: 0 };
+          // Apply rules to all existing bookmarks
+          let matchCount = 0;
+          const updatedBookmarks = bookmarks.map(bm => {
+            const { result, matchedRules } = rulesEngine.processBookmark(bm, folders);
+            if (matchedRules.length > 0) {
+              matchCount++;
+              matchedRules.forEach(ruleId => rulesEngine.recordMatch(ruleId));
+              return result;
+            }
+            return bm;
+          });
+          if (matchCount > 0) {
+            setBookmarks(updatedBookmarks);
+          }
+          showToast(`Applied rules to ${matchCount} bookmarks!`, 'success');
+          return { processed: bookmarks.length, matched: matchCount };
         }}
       />
 

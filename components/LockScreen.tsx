@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, ArrowRight, ShieldCheck, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { Lock, ArrowRight, ShieldCheck, AlertCircle, Eye, EyeOff, ChevronDown, ChevronRight, Ghost } from 'lucide-react';
 
 interface LockScreenProps {
   onUnlock: (pin: string) => Promise<boolean> | boolean;
-  onSetup: (pin: string) => void;
+  onSetup: (pin: string, vaultPin?: string) => void;
   isSetupMode: boolean;
 }
 
 export const LockScreen: React.FC<LockScreenProps> = ({ onUnlock, onSetup, isSetupMode }) => {
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
+  const [vaultPin, setVaultPin] = useState('');
+  const [confirmVaultPin, setConfirmVaultPin] = useState('');
+  const [showVaultSetup, setShowVaultSetup] = useState(false);
   const [error, setError] = useState('');
   const [shake, setShake] = useState(false);
   const [showPin, setShowPin] = useState(false);
@@ -38,7 +41,24 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onUnlock, onSetup, isSet
         setShake(true);
         return;
       }
-      onSetup(pin);
+      if (showVaultSetup && vaultPin) {
+        if (vaultPin.length < 4) {
+          setError('Vault PIN must be at least 4 digits');
+          setShake(true);
+          return;
+        }
+        if (vaultPin !== confirmVaultPin) {
+          setError('Vault PINs do not match');
+          setShake(true);
+          return;
+        }
+        if (vaultPin === pin) {
+          setError('Vault PIN must be different from main PIN');
+          setShake(true);
+          return;
+        }
+      }
+      onSetup(pin, showVaultSetup && vaultPin ? vaultPin : undefined);
     } else {
       setIsLoading(true);
       const success = await onUnlock(pin);
@@ -111,6 +131,51 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onUnlock, onSetup, isSet
                 >
                   {showPin ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
+              </div>
+            )}
+
+            {/* Ghost Vault Setup (optional) */}
+            {isSetupMode && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowVaultSetup(!showVaultSetup)}
+                  className="w-full flex items-center justify-between px-3 py-2 text-xs text-slate-400 hover:text-slate-300 bg-slate-800/50 rounded-lg border border-slate-700/50 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <Ghost size={14} />
+                    <span>Setup Ghost Vault (Optional)</span>
+                  </div>
+                  {showVaultSetup ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                </button>
+
+                {showVaultSetup && (
+                  <div className="mt-3 p-3 bg-purple-500/5 border border-purple-500/20 rounded-lg space-y-3">
+                    <p className="text-[10px] text-purple-300">
+                      🔒 <strong>Ghost Vault</strong>: Hidden vault accessible with a separate PIN. Use for sensitive bookmarks.
+                    </p>
+                    <div className="relative">
+                      <input
+                        type={showPin ? "text" : "password"}
+                        value={vaultPin}
+                        onChange={(e) => setVaultPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                        placeholder="Vault PIN (different from main)"
+                        className="w-full bg-slate-900/50 border border-purple-500/30 focus:border-purple-500 rounded-xl px-4 py-2.5 text-center text-white text-lg tracking-[0.3em] placeholder:tracking-normal placeholder:text-slate-600 placeholder:text-xs focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all"
+                        inputMode="numeric"
+                      />
+                    </div>
+                    <div className="relative">
+                      <input
+                        type={showPin ? "text" : "password"}
+                        value={confirmVaultPin}
+                        onChange={(e) => setConfirmVaultPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                        placeholder="Confirm Vault PIN"
+                        className="w-full bg-slate-900/50 border border-purple-500/30 focus:border-purple-500 rounded-xl px-4 py-2.5 text-center text-white text-lg tracking-[0.3em] placeholder:tracking-normal placeholder:text-slate-600 placeholder:text-xs focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all"
+                        inputMode="numeric"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
