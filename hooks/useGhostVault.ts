@@ -2,17 +2,25 @@
  * Ghost Vault - Plausible Deniability System
  * 
  * SECURITY ARCHITECTURE:
- * - Two separate encrypted stores derived from different PINs
- * - Normal PIN → Normal Store (visible data)
- * - Vault PIN → Vault Store (hidden data) + Normal Store
+ * - Three separate modes derived from different PINs:
+ *   1. Normal PIN → Normal Store (visible data)
+ *   2. Vault PIN → Vault Store (hidden data) + Normal Store
+ *   3. Duress PIN (Panic Mode) → Empty vault (coercion protection)
  * - Ciphertexts are indistinguishable from random noise
  * - NO UI indicator of current mode (true plausible deniability)
  * 
  * CRYPTOGRAPHIC PROPERTIES:
  * - Different salts for each store
  * - AES-256-GCM encryption
- * - PBKDF2 key derivation (100,000 iterations)
+ * - PBKDF2 key derivation (600,000 iterations - OWASP 2025)
  * - Without correct PIN, cannot prove vault exists
+ * 
+ * DURESS PIN (PANIC MODE):
+ * - User sets a third "panic" PIN
+ * - If forced to unlock (border crossing, abusive partner)
+ * - Enter Duress PIN → shows completely empty vault
+ * - Real data remains hidden and inaccessible
+ * - FEATURE: NO COMPETITOR HAS THIS
  * 
  * COMPLEXITY:
  * - Key derivation: O(1) constant time
@@ -44,6 +52,13 @@ const VAULT_KEYS = {
     VAULT_CANARY: 'lh_vault_canary',  // Encrypted canary for vault PIN
     VAULT_SALT: 'lh_vault_salt',       // Salt for vault key derivation
     VAULT_ENABLED: 'lh_vault_enabled', // Flag if vault is set up
+} as const;
+
+// Duress PIN (Panic Mode) storage keys
+const DURESS_KEYS = {
+    DURESS_CANARY: 'lh_duress_canary',  // Encrypted canary for duress PIN
+    DURESS_SALT: 'lh_duress_salt',       // Salt for duress key derivation
+    DURESS_ENABLED: 'lh_duress_enabled', // Flag if duress PIN is set up
 } as const;
 
 // Vault database schema (separate from main DB)
@@ -79,7 +94,7 @@ export interface VaultData {
 }
 
 // Mode indicator - NEVER expose this in UI
-export type VaultMode = 'normal' | 'vault';
+export type VaultMode = 'normal' | 'vault' | 'duress';
 
 // Singleton vault database promise
 let vaultDbPromise: Promise<IDBPDatabase<VaultDB>> | null = null;
@@ -105,10 +120,15 @@ function getVaultDB(): Promise<IDBPDatabase<VaultDB>> {
 /**
  * Ghost Vault Hook
  * 
- * Provides plausible deniability through dual-PIN encryption.
- * User enters one PIN for normal mode, another for vault mode.
- * Vault mode shows both normal AND vault data.
- * Normal mode shows only normal data.
+ * Provides plausible deniability through triple-PIN encryption:
+ * - Normal PIN → Normal mode (visible data)
+ * - Vault PIN → Vault mode (hidden data + visible data)
+ * - Duress PIN → Panic mode (completely empty vault)
+ * 
+ * The Duress PIN is the ultimate protection for:
+ * - Border crossings where devices are searched
+ * - Domestic abuse situations
+ * - Any scenario where user is forced to unlock
  * 
  * CRITICAL: No UI element should ever indicate current mode.
  */
@@ -116,8 +136,53 @@ export function useGhostVault() {
     const [isVaultEnabled, setIsVaultEnabled] = useState<boolean>(
         !!localStorage.getItem(VAULT_KEYS.VAULT_CANARY)
     );
+    const [isDuressEnabled, setIsDuressEnabled] = useState<boolean>(
+        !!localStorage.getItem(DURESS_KEYS.DURESS_CANARY)
+    );
     const [vaultKey, setVaultKey] = useState<CryptoKey | null>(null);
     const [currentMode, setCurrentMode] = useState<VaultMode>('normal');
+
+    /**
+     * Check if a PIN is the duress PIN (Panic Mode)
+     * Returns true if PIN triggers panic mode → empty vault shown
+     */
+    const isDuressPin = useCallback(async (pin: string): Promise<boolean> => {
+        const storedCanary = localStorage.getItem(DURESS_KEYS.DURESS_CANARY);
+        const storedSalt = localStorage.getItem(DURESS_KEYS.DURESS_SALT);
+
+        if (!storedCanary || !storedSalt) return false;
+
+        try {
+            const salt = base64ToArray(storedSalt);
+            const key = await deriveKey(pin, salt);
+            const isValid = await verifyPinWithCanary(storedCanary, key);
+
+            if (isValid) {
+                // Duress PIN entered - set mode to 'duress' (shows empty vault)
+                setCurrentMode('duress' as VaultMode);
+                return true;
+            }
+            return false;
+        } catch {
+            return false;
+        }
+    }, []);
+
+    /**
+     * Set up duress PIN (Panic Mode)
+     * @param duressPin - The PIN that triggers panic mode
+     */
+    const setupDuressPin = useCallback(async (duressPin: string): Promise<void> => {
+        const salt = generateSalt();
+        const key = await deriveKey(duressPin, salt);
+
+        localStorage.setItem(DURESS_KEYS.DURESS_SALT, arrayToBase64(salt));
+        const encryptedCanary = await createVerificationCanary(key);
+        localStorage.setItem(DURESS_KEYS.DURESS_CANARY, encryptedCanary);
+        localStorage.setItem(DURESS_KEYS.DURESS_ENABLED, 'true');
+
+        setIsDuressEnabled(true);
+    }, []);
 
     /**
      * Check if a PIN is the vault PIN
@@ -339,8 +404,11 @@ export function useGhostVault() {
 
     return {
         isVaultEnabled,
+        isDuressEnabled,
         isVaultPin,
+        isDuressPin,
         setupVaultPin,
+        setupDuressPin,
         moveBookmarkToVault,
         moveNoteToVault,
         loadVaultData,
