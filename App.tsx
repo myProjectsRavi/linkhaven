@@ -33,6 +33,7 @@ import { checkMultipleLinks } from './utils/linkChecker';
 import { SnapshotDB } from './utils/SnapshotDB';
 import { extractContent, isExtractable, formatBytes } from './utils/contentExtractor';
 import { useCitations, useRules } from './hooks';
+import { useGhostVault } from './hooks/useGhostVault';
 import {
   deriveKey,
   encrypt,
@@ -139,8 +140,12 @@ function App() {
   const [isVaultUnlocked, setIsVaultUnlocked] = useState(false);
   const [vaultBookmarks, setVaultBookmarks] = useState<Bookmark[]>([]);
   const [showVaultPinModal, setShowVaultPinModal] = useState(false);
-  const [vaultPinMode, setVaultPinMode] = useState<'setup' | 'unlock'>('setup');
+  const [vaultPinMode, setVaultPinMode] = useState<'setup' | 'unlock' | 'duress'>('setup');
   const hasVaultPin = !!localStorage.getItem('lh_vault_canary');
+
+  // Duress PIN (Panic Mode) - Uses the hook
+  const ghostVault = useGhostVault();
+  const [isDuressMode, setIsDuressMode] = useState(false); // True when panic PIN was entered
 
   // Auto Backup State
   const autoBackup = useAutoBackup();
@@ -489,6 +494,28 @@ function App() {
   // Auth Handlers - Using canary-based verification (never stores PIN)
   const handleUnlock = async (inputPin: string) => {
     try {
+      // SECURITY: Check for Duress (Panic) PIN first!
+      // If user is being forced to unlock, the panic PIN shows empty vault
+      if (ghostVault.isDuressEnabled) {
+        const isPanicPin = await ghostVault.isDuressPin(inputPin);
+        if (isPanicPin) {
+          // Duress PIN entered - show completely empty vault
+          // This protects user from coercion (border crossing, abusive situations)
+          sessionStorage.setItem(STORAGE_KEYS.SESSION, 'true');
+          setIsAuthenticated(true);
+          setIsDuressMode(true);
+          // Clear all visible data - show empty state
+          setFolders([{ id: 'default', name: 'General', createdAt: Date.now() }]);
+          setBookmarks([]);
+          setNotebooks([{ id: 'default-notebook', name: 'General', createdAt: Date.now() }]);
+          setNotes([]);
+          setTrash([]);
+          setVaultBookmarks([]);
+          // Don't load any real data
+          return true;
+        }
+      }
+
       const saltBase64 = localStorage.getItem(STORAGE_KEYS.SALT);
       const encryptedCanary = localStorage.getItem(STORAGE_KEYS.CANARY);
 
@@ -506,6 +533,7 @@ function App() {
       if (isValid) {
         sessionStorage.setItem(STORAGE_KEYS.SESSION, 'true');
         setIsAuthenticated(true);
+        setIsDuressMode(false);
         setCryptoKey(key);
         await loadData(key);
         return true;
@@ -2024,6 +2052,12 @@ function App() {
             return false;
           }
         }}
+        onSetupDuress={async (pin) => {
+          // Set up Duress (Panic) PIN using the ghostVault hook
+          await ghostVault.setupDuressPin(pin);
+          setShowVaultPinModal(false);
+          showToast('Panic PIN set! Use it when forced to unlock - shows empty vault.', 'success');
+        }}
       />
 
       {/* Smart Backup Config Modal */}
@@ -2144,8 +2178,8 @@ function App() {
 
             // Download the stego image
             const filename = `linkhaven_backup_${new Date().toISOString().split('T')[0]}.png`;
-            downloadCanvasAsPng(stegoCanvas, filename);
-            showToast('Hidden backup created! Your data is inside the image.', 'success');
+            await downloadCanvasAsPng(stegoCanvas, filename);
+            showToast('Hidden backup created! Check your Downloads folder.', 'success');
           } catch (err) {
             console.error('Steganography export error:', err);
             showToast('Failed to create hidden backup', 'error');

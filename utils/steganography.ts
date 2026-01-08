@@ -233,25 +233,32 @@ export function loadImageToCanvas(file: File): Promise<HTMLCanvasElement> {
 
 /**
  * Download canvas as PNG file
+ * Returns a Promise that resolves when download is triggered
  */
-export function downloadCanvasAsPng(canvas: HTMLCanvasElement, filename: string): void {
-    // Convert canvas to blob for more reliable download
-    canvas.toBlob((blob) => {
-        if (!blob) {
-            console.error('Failed to create blob from canvas');
-            return;
-        }
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.download = filename;
-        link.href = url;
-        // Append to body, click, then remove (required for Firefox/Safari)
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        // Clean up blob URL
-        setTimeout(() => URL.revokeObjectURL(url), 100);
-    }, 'image/png');
+export function downloadCanvasAsPng(canvas: HTMLCanvasElement, filename: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+        // Convert canvas to blob for more reliable download
+        canvas.toBlob((blob) => {
+            if (!blob) {
+                console.error('Failed to create blob from canvas');
+                reject(new Error('Failed to create blob'));
+                return;
+            }
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = url;
+            // Append to body, click, then remove (required for Firefox/Safari)
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            // Clean up blob URL and resolve
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+                resolve();
+            }, 100);
+        }, 'image/png');
+    });
 }
 
 /**
