@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Wifi, Check, X, Loader, Copy, Download, Upload, ArrowLeft, Camera, QrCode } from 'lucide-react';
+import { Wifi, Check, X, Loader, Copy, Download, Upload, ArrowLeft, Camera, QrCode, Folder as FolderIcon, ChevronDown } from 'lucide-react';
 import { Folder, Bookmark, Notebook, Note } from '../types';
 import QRCode from 'qrcode';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -22,7 +22,8 @@ interface P2PSyncModalProps {
     onError: (message: string) => void;
 }
 
-type SyncMode = 'select' | 'send' | 'receive';
+type SyncMode = 'select' | 'choose-folder' | 'send' | 'receive';
+type SyncScope = 'all' | 'folder';
 
 // Compress data for smaller sync codes
 function compressData(data: string): string {
@@ -37,9 +38,9 @@ function decompressData(compressed: string): string {
 function generateSyncCode(
     folders: Folder[],
     bookmarks: Bookmark[],
-    notebooks: Notebook[],
-    notes: Note[],
-    vaultBookmarks: Bookmark[]
+    notebooks: Notebook[] = [],
+    notes: Note[] = [],
+    vaultBookmarks: Bookmark[] = []
 ): string {
     const payload: any = {
         v: 4,
@@ -176,6 +177,8 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
     onError
 }) => {
     const [mode, setMode] = useState<SyncMode>('select');
+    const [syncScope, setSyncScope] = useState<SyncScope>('all');
+    const [selectedFolderId, setSelectedFolderId] = useState<string>('');
     const [syncCode, setSyncCode] = useState('');
     const [inputCode, setInputCode] = useState('');
     const [copied, setCopied] = useState(false);
@@ -186,7 +189,12 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
     const [qrTooLarge, setQrTooLarge] = useState(false);
 
     const scannerRef = useRef<Html5Qrcode | null>(null);
-    const scannerContainerRef = useRef<HTMLDivElement>(null);
+
+    // Get bookmarks count for each folder
+    const folderBookmarkCounts = folders.reduce((acc, folder) => {
+        acc[folder.id] = bookmarks.filter(b => b.folderId === folder.id).length;
+        return acc;
+    }, {} as Record<string, number>);
 
     // Cleanup scanner on unmount
     useEffect(() => {
@@ -197,34 +205,59 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
         };
     }, []);
 
-    // Generate sync code when entering send mode
+    // Generate QR when entering send mode
     useEffect(() => {
         if (mode === 'send') {
-            setIsGenerating(true);
-            const code = generateSyncCode(folders, bookmarks, notebooks, notes, vaultBookmarks);
-            setSyncCode(code);
-
-            // QR codes work best under 2KB
-            if (code.length < 2000) {
-                setQrTooLarge(false);
-                QRCode.toDataURL(code, {
-                    width: 300,
-                    margin: 2,
-                    errorCorrectionLevel: 'L', // Lower error correction = more data capacity
-                    color: { dark: '#1e293b', light: '#ffffff' }
-                }).then(url => {
-                    setQrDataUrl(url);
-                    setIsGenerating(false);
-                }).catch(() => {
-                    setIsGenerating(false);
-                });
-            } else {
-                setQrTooLarge(true);
-                setQrDataUrl('');
-                setIsGenerating(false);
-            }
+            generateQR();
         }
-    }, [mode, folders, bookmarks, notebooks, notes, vaultBookmarks]);
+    }, [mode, selectedFolderId, syncScope]);
+
+    const generateQR = () => {
+        setIsGenerating(true);
+
+        let foldersToSync: Folder[];
+        let bookmarksToSync: Bookmark[];
+
+        if (syncScope === 'folder' && selectedFolderId) {
+            // Only sync selected folder and its bookmarks
+            const folder = folders.find(f => f.id === selectedFolderId);
+            foldersToSync = folder ? [folder] : [];
+            bookmarksToSync = bookmarks.filter(b => b.folderId === selectedFolderId);
+        } else {
+            // Sync everything
+            foldersToSync = folders;
+            bookmarksToSync = bookmarks;
+        }
+
+        const code = generateSyncCode(
+            foldersToSync,
+            bookmarksToSync,
+            syncScope === 'all' ? notebooks : [],
+            syncScope === 'all' ? notes : [],
+            syncScope === 'all' ? vaultBookmarks : []
+        );
+        setSyncCode(code);
+
+        // QR codes work best under 2KB
+        if (code.length < 2000) {
+            setQrTooLarge(false);
+            QRCode.toDataURL(code, {
+                width: 300,
+                margin: 2,
+                errorCorrectionLevel: 'L',
+                color: { dark: '#1e293b', light: '#ffffff' }
+            }).then(url => {
+                setQrDataUrl(url);
+                setIsGenerating(false);
+            }).catch(() => {
+                setIsGenerating(false);
+            });
+        } else {
+            setQrTooLarge(true);
+            setQrDataUrl('');
+            setIsGenerating(false);
+        }
+    };
 
     // Start QR scanner
     const startScanner = async () => {
@@ -237,28 +270,20 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
 
             await html5QrCode.start(
                 { facingMode: "environment" },
-                {
-                    fps: 10,
-                    qrbox: { width: 250, height: 250 }
-                },
+                { fps: 10, qrbox: { width: 250, height: 250 } },
                 (decodedText) => {
-                    // Successfully scanned
                     html5QrCode.stop().catch(() => { });
                     setIsScanning(false);
                     handleScannedCode(decodedText);
                 },
-                () => {
-                    // Ignore parse errors during scanning
-                }
+                () => { }
             );
         } catch (err) {
             setIsScanning(false);
             setScanError('Camera access denied. Please paste the code manually.');
-            console.error('Scanner error:', err);
         }
     };
 
-    // Stop scanner
     const stopScanner = () => {
         if (scannerRef.current) {
             scannerRef.current.stop().catch(() => { });
@@ -267,18 +292,11 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
         setIsScanning(false);
     };
 
-    // Handle scanned code
     const handleScannedCode = (code: string) => {
         const data = parseSyncCode(code);
         if (data) {
-            onImport({
-                folders: data.folders,
-                bookmarks: data.bookmarks,
-                notebooks: data.notebooks,
-                notes: data.notes,
-                vaultBookmarks: data.vaultBookmarks
-            });
-            onSuccess(`Imported ${data.bookmarks.length} bookmarks!`);
+            onImport(data);
+            onSuccess(`✨ Imported ${data.bookmarks.length} bookmarks from ${data.folders.length} folder(s)!`);
             onClose();
         } else {
             setScanError('Invalid QR code. Not a LinkHaven sync code.');
@@ -291,73 +309,52 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         } catch {
-            onError('Failed to copy to clipboard');
+            onError('Failed to copy');
         }
-    };
-
-    const handleDownload = () => {
-        const blob = new Blob([syncCode], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `linkhaven-sync-${Date.now()}.txt`;
-        link.click();
-        URL.revokeObjectURL(url);
-        onSuccess('Sync file downloaded!');
     };
 
     const handleManualImport = () => {
         const data = parseSyncCode(inputCode);
         if (!data) {
-            onError('Invalid sync code. Make sure you copied the entire code.');
+            onError('Invalid sync code.');
             return;
         }
-
-        onImport({
-            folders: data.folders,
-            bookmarks: data.bookmarks,
-            notebooks: data.notebooks,
-            notes: data.notes,
-            vaultBookmarks: data.vaultBookmarks
-        });
-        onSuccess(`Imported ${data.bookmarks.length} bookmarks!`);
+        onImport(data);
+        onSuccess(`✨ Imported ${data.bookmarks.length} bookmarks!`);
         onClose();
     };
 
-    const dataStats = {
-        folders: folders.length,
-        bookmarks: bookmarks.length,
-        notebooks: notebooks.length,
-        notes: notes.length,
-        vault: vaultBookmarks.length
-    };
+    const selectedFolder = folders.find(f => f.id === selectedFolderId);
+    const selectedFolderBookmarks = selectedFolderId
+        ? bookmarks.filter(b => b.folderId === selectedFolderId).length
+        : 0;
 
     return (
         <div className="space-y-5">
             {/* Header */}
             <div className="flex items-center gap-3">
                 <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-cyan-500/30">
-                    <Wifi size={24} className="text-white" />
+                    <QrCode size={24} className="text-white" />
                 </div>
                 <div>
                     <h3 className="text-lg font-bold text-slate-800">QR Sync</h3>
-                    <p className="text-sm text-slate-500">Scan to sync between devices</p>
+                    <p className="text-sm text-slate-500">Scan to sync instantly</p>
                 </div>
             </div>
 
-            {/* Mode Selection */}
+            {/* Mode: Select Send/Receive */}
             {mode === 'select' && (
                 <div className="space-y-4">
-                    <div className="bg-cyan-50 border border-cyan-100 rounded-lg p-4 text-sm text-cyan-800">
-                        <p className="font-medium">📱 Quick QR Sync</p>
+                    <div className="bg-gradient-to-r from-cyan-50 to-blue-50 border border-cyan-100 rounded-lg p-4 text-sm">
+                        <p className="font-medium text-cyan-800">📱 Magic QR Sync</p>
                         <p className="text-cyan-600 mt-1">
-                            Show QR on one device, scan with the other. Zero cloud!
+                            Show QR on one device, scan with another. Done!
                         </p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                         <button
-                            onClick={() => setMode('send')}
+                            onClick={() => setMode('choose-folder')}
                             className="flex flex-col items-center gap-3 p-6 border-2 border-slate-200 rounded-xl hover:border-cyan-500 hover:bg-cyan-50/50 transition-all group"
                         >
                             <div className="w-14 h-14 bg-cyan-100 rounded-xl flex items-center justify-center group-hover:bg-cyan-200 transition-colors">
@@ -365,7 +362,7 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
                             </div>
                             <div className="text-center">
                                 <div className="font-semibold text-slate-800">Show QR</div>
-                                <div className="text-xs text-slate-500 mt-1">Display sync code</div>
+                                <div className="text-xs text-slate-500 mt-1">Send data</div>
                             </div>
                         </button>
 
@@ -378,32 +375,106 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
                             </div>
                             <div className="text-center">
                                 <div className="font-semibold text-slate-800">Scan QR</div>
-                                <div className="text-xs text-slate-500 mt-1">Import from camera</div>
+                                <div className="text-xs text-slate-500 mt-1">Receive data</div>
                             </div>
                         </button>
                     </div>
                 </div>
             )}
 
-            {/* Send Mode - Show QR */}
+            {/* Mode: Choose What to Sync */}
+            {mode === 'choose-folder' && (
+                <div className="space-y-4">
+                    <div className="text-sm text-slate-600 font-medium">What do you want to sync?</div>
+
+                    {/* Sync Everything */}
+                    <button
+                        onClick={() => {
+                            setSyncScope('all');
+                            setMode('send');
+                        }}
+                        className={`w-full flex items-center gap-3 p-4 border-2 rounded-xl transition-all ${bookmarks.length < 30
+                                ? 'border-emerald-200 bg-emerald-50 hover:border-emerald-500'
+                                : 'border-amber-200 bg-amber-50'
+                            }`}
+                    >
+                        <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm">
+                            <Wifi size={20} className="text-cyan-600" />
+                        </div>
+                        <div className="flex-1 text-left">
+                            <div className="font-semibold text-slate-800">Sync Everything</div>
+                            <div className="text-xs text-slate-500">
+                                {folders.length} folders • {bookmarks.length} bookmarks
+                                {bookmarks.length >= 30 && (
+                                    <span className="text-amber-600 ml-1">(may need paste)</span>
+                                )}
+                            </div>
+                        </div>
+                        {bookmarks.length < 30 && (
+                            <span className="text-xs px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full">
+                                ✓ QR fits
+                            </span>
+                        )}
+                    </button>
+
+                    {/* Folder Selection */}
+                    <div className="text-xs text-slate-500 text-center">— or sync a single folder —</div>
+
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {folders.map(folder => {
+                            const count = folderBookmarkCounts[folder.id] || 0;
+                            const canFitQR = count < 30;
+
+                            return (
+                                <button
+                                    key={folder.id}
+                                    onClick={() => {
+                                        setSelectedFolderId(folder.id);
+                                        setSyncScope('folder');
+                                        setMode('send');
+                                    }}
+                                    className={`w-full flex items-center gap-3 p-3 border-2 rounded-lg transition-all hover:border-cyan-500 ${canFitQR ? 'border-slate-200' : 'border-amber-200 bg-amber-50/50'
+                                        }`}
+                                >
+                                    <FolderIcon size={18} className="text-slate-400" />
+                                    <div className="flex-1 text-left">
+                                        <div className="font-medium text-slate-700 text-sm">{folder.name}</div>
+                                    </div>
+                                    <span className={`text-xs px-2 py-0.5 rounded-full ${canFitQR
+                                            ? 'bg-slate-100 text-slate-600'
+                                            : 'bg-amber-100 text-amber-700'
+                                        }`}>
+                                        {count} {count === 1 ? 'bookmark' : 'bookmarks'}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* Mode: Show QR */}
             {mode === 'send' && (
                 <div className="space-y-4">
-                    {/* Data Summary */}
-                    <div className="bg-slate-50 rounded-lg p-3 text-sm">
-                        <div className="font-medium text-slate-700 mb-2">Syncing:</div>
-                        <div className="flex flex-wrap gap-2">
-                            <span className="px-2 py-1 bg-white rounded border text-xs">
-                                📁 {dataStats.folders} folders
-                            </span>
-                            <span className="px-2 py-1 bg-white rounded border text-xs">
-                                🔖 {dataStats.bookmarks} bookmarks
-                            </span>
-                            {dataStats.vault > 0 && (
-                                <span className="px-2 py-1 bg-purple-100 rounded border border-purple-200 text-xs text-purple-700">
-                                    👻 {dataStats.vault} vault
+                    {/* What's being synced */}
+                    <div className="bg-slate-50 rounded-lg p-3 text-sm flex items-center gap-2">
+                        <div className="flex-1">
+                            {syncScope === 'folder' && selectedFolder ? (
+                                <span className="font-medium text-slate-700">
+                                    📁 {selectedFolder.name} • {selectedFolderBookmarks} bookmarks
+                                </span>
+                            ) : (
+                                <span className="font-medium text-slate-700">
+                                    📦 Everything • {bookmarks.length} bookmarks
                                 </span>
                             )}
                         </div>
+                        <button
+                            onClick={() => setMode('choose-folder')}
+                            className="text-xs text-cyan-600 hover:text-cyan-700"
+                        >
+                            Change
+                        </button>
                     </div>
 
                     {isGenerating ? (
@@ -413,60 +484,53 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
                     ) : qrTooLarge ? (
                         <div className="space-y-4">
                             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-                                <p className="font-medium">⚠️ Data too large for QR</p>
-                                <p className="mt-1">You have too many bookmarks for a QR code. Copy the sync code instead.</p>
+                                <p className="font-medium">⚠️ Too many bookmarks for QR</p>
+                                <p className="mt-1 text-amber-700">
+                                    Try syncing a smaller folder, or copy the code below.
+                                </p>
                             </div>
 
                             <textarea
                                 readOnly
                                 value={syncCode}
-                                className="w-full h-24 px-3 py-2 text-xs font-mono bg-slate-100 border border-slate-300 rounded-lg resize-none"
+                                className="w-full h-20 px-3 py-2 text-xs font-mono bg-slate-100 border border-slate-300 rounded-lg resize-none"
                             />
 
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={handleCopy}
-                                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700 rounded-lg"
-                                >
-                                    {copied ? <Check size={16} /> : <Copy size={16} />}
-                                    {copied ? 'Copied!' : 'Copy Code'}
-                                </button>
-                                <button
-                                    onClick={handleDownload}
-                                    className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg"
-                                >
-                                    <Download size={16} />
-                                </button>
-                            </div>
+                            <button
+                                onClick={handleCopy}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700 rounded-lg"
+                            >
+                                {copied ? <Check size={16} /> : <Copy size={16} />}
+                                {copied ? 'Copied!' : 'Copy Code'}
+                            </button>
                         </div>
                     ) : (
                         <div className="space-y-4">
-                            {/* QR Code Display */}
+                            {/* QR Code */}
                             <div className="flex justify-center p-6 bg-white border-2 border-slate-200 rounded-xl">
-                                <img src={qrDataUrl} alt="Sync QR Code" className="w-64 h-64" />
+                                <img src={qrDataUrl} alt="Sync QR Code" className="w-56 h-56" />
                             </div>
 
                             <p className="text-center text-sm text-slate-600">
-                                📱 Scan this QR with your other device
+                                📱 Point your other device's camera at this QR
                             </p>
 
-                            {/* Fallback options */}
-                            <details className="text-sm">
-                                <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
-                                    Can't scan? Copy code instead
+                            <details className="text-xs">
+                                <summary className="cursor-pointer text-slate-400 hover:text-slate-600 text-center">
+                                    Can't scan? Copy code
                                 </summary>
-                                <div className="mt-3 space-y-2">
+                                <div className="mt-2 space-y-2">
                                     <textarea
                                         readOnly
                                         value={syncCode}
-                                        className="w-full h-16 px-3 py-2 text-xs font-mono bg-slate-100 border border-slate-300 rounded-lg resize-none"
+                                        className="w-full h-16 px-2 py-1.5 text-xs font-mono bg-slate-50 border rounded resize-none"
                                     />
                                     <button
                                         onClick={handleCopy}
-                                        className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg"
+                                        className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs text-slate-600 bg-slate-100 hover:bg-slate-200 rounded"
                                     >
-                                        {copied ? <Check size={16} /> : <Copy size={16} />}
-                                        {copied ? 'Copied!' : 'Copy Code'}
+                                        {copied ? <Check size={12} /> : <Copy size={12} />}
+                                        {copied ? 'Copied!' : 'Copy'}
                                     </button>
                                 </div>
                             </details>
@@ -475,14 +539,13 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
                 </div>
             )}
 
-            {/* Receive Mode - Scan QR */}
+            {/* Mode: Scan QR */}
             {mode === 'receive' && (
                 <div className="space-y-4">
                     {isScanning ? (
                         <div className="space-y-4">
                             <div
                                 id="qr-scanner-container"
-                                ref={scannerContainerRef}
                                 className="w-full aspect-square bg-slate-900 rounded-xl overflow-hidden"
                             />
                             <button
@@ -508,30 +571,30 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
                                 <Camera size={48} className="text-cyan-600" />
                                 <div className="text-center">
                                     <div className="font-semibold text-slate-800">Start Camera</div>
-                                    <div className="text-xs text-slate-500 mt-1">Point at QR code to scan</div>
+                                    <div className="text-xs text-slate-500 mt-1">Point at QR to import</div>
                                 </div>
                             </button>
 
                             <div className="flex items-center gap-2">
                                 <div className="flex-1 border-t border-slate-200"></div>
-                                <span className="text-xs text-slate-400">or paste code</span>
+                                <span className="text-xs text-slate-400">or paste</span>
                                 <div className="flex-1 border-t border-slate-200"></div>
                             </div>
 
                             <textarea
                                 value={inputCode}
                                 onChange={(e) => setInputCode(e.target.value)}
-                                placeholder="Paste sync code here..."
-                                className="w-full h-24 px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 outline-none resize-none"
+                                placeholder="Paste sync code..."
+                                className="w-full h-20 px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 outline-none resize-none"
                             />
 
                             <button
                                 onClick={handleManualImport}
                                 disabled={!inputCode.trim()}
-                                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-lg transition-colors"
+                                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 rounded-lg"
                             >
                                 <Download size={16} />
-                                Import Data
+                                Import
                             </button>
                         </div>
                     )}
@@ -543,25 +606,20 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
                 <button
                     onClick={() => {
                         stopScanner();
-                        if (mode !== 'select') {
+                        if (mode === 'send' || mode === 'receive') {
+                            setMode(mode === 'send' ? 'choose-folder' : 'select');
+                        } else if (mode === 'choose-folder') {
                             setMode('select');
-                            setSyncCode('');
-                            setInputCode('');
-                            setQrDataUrl('');
-                            setScanError('');
                         } else {
                             onClose();
                         }
                     }}
-                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
                 >
                     <ArrowLeft size={16} />
-                    {mode !== 'select' ? 'Back' : 'Cancel'}
+                    {mode === 'select' ? 'Cancel' : 'Back'}
                 </button>
-
-                <div className="text-xs text-slate-400">
-                    Zero cloud • Direct transfer
-                </div>
+                <div className="text-xs text-slate-400">Zero cloud</div>
             </div>
         </div>
     );
