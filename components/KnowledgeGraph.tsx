@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { Search, ZoomIn, ZoomOut, Maximize2, AlertCircle, Link2, FileText, Tag, Globe, HelpCircle, Sparkles } from 'lucide-react';
+import { Search, ZoomIn, ZoomOut, Maximize2, AlertCircle, Link2, FileText, Tag, Globe, HelpCircle, Sparkles, Eye, EyeOff } from 'lucide-react';
 import { Bookmark, Note, GraphNode, KnowledgeGraphData } from '../types';
 import { buildKnowledgeGraph, applyForceLayout, findOrphans } from '../utils/graphBuilder';
 
@@ -23,6 +23,8 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
     const [filter, setFilter] = useState<'all' | 'bookmarks' | 'notes' | 'tags'>('all');
     const [searchQuery, setSearchQuery] = useState('');
+    const [showAllNodes, setShowAllNodes] = useState(false); // Default: show limited nodes
+    const NODE_LIMIT = 40; // Show top 40 most connected nodes by default
 
     // Build and layout graph
     const graphData = useMemo(() => {
@@ -59,8 +61,26 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
             edges = edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
         }
 
+        // Node limit filter - show only top connected nodes unless showing all
+        if (!showAllNodes && nodes.length > NODE_LIMIT) {
+            // Count connections per node
+            const connectionCount = new Map<string, number>();
+            edges.forEach(e => {
+                connectionCount.set(e.source, (connectionCount.get(e.source) || 0) + 1);
+                connectionCount.set(e.target, (connectionCount.get(e.target) || 0) + 1);
+            });
+
+            // Sort by connection count and take top nodes
+            nodes = [...nodes]
+                .sort((a, b) => (connectionCount.get(b.id) || 0) - (connectionCount.get(a.id) || 0))
+                .slice(0, NODE_LIMIT);
+
+            const nodeIds = new Set(nodes.map(n => n.id));
+            edges = edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
+        }
+
         return { nodes, edges };
-    }, [graphData, filter, searchQuery]);
+    }, [graphData, filter, searchQuery, showAllNodes]);
 
     // Handle resize
     useEffect(() => {
@@ -278,6 +298,21 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
                     >
                         <Maximize2 size={16} />
                     </button>
+
+                    {/* Show All Toggle */}
+                    {graphData.nodes.length > NODE_LIMIT && (
+                        <button
+                            onClick={() => setShowAllNodes(!showAllNodes)}
+                            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg transition-colors ${showAllNodes
+                                ? 'bg-indigo-100 text-indigo-700'
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                }`}
+                            title={showAllNodes ? 'Show top connected only' : 'Show all nodes'}
+                        >
+                            {showAllNodes ? <EyeOff size={14} /> : <Eye size={14} />}
+                            {showAllNodes ? 'Focus View' : `Show All (${graphData.nodes.length})`}
+                        </button>
+                    )}
                 </div>
             </div>
 

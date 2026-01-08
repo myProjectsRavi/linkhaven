@@ -114,7 +114,7 @@ export const BackupConfigModal: React.FC<BackupConfigModalProps> = ({
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div
-                className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+                className="bg-white rounded-2xl shadow-2xl max-w-sm w-full max-h-[80vh] overflow-y-auto"
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
@@ -138,7 +138,7 @@ export const BackupConfigModal: React.FC<BackupConfigModalProps> = ({
                     </button>
                 </div>
 
-                <div className="p-6 space-y-6">
+                <div className="p-4 space-y-4">
                     {/* Browser Support Warning */}
                     {!isSupported && (
                         <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
@@ -331,12 +331,12 @@ export const BackupConfigModal: React.FC<BackupConfigModalProps> = ({
                                             <span className="text-sm font-medium text-slate-700">Restore from Image</span>
                                         </div>
                                         <label className={`block w-full text-center px-4 py-3 text-sm font-medium rounded-lg cursor-pointer transition-colors ${stegoStatus === 'importing'
-                                                ? 'bg-purple-100 text-purple-600'
-                                                : stegoStatus === 'success'
-                                                    ? 'bg-emerald-100 text-emerald-600'
-                                                    : stegoStatus === 'error'
-                                                        ? 'bg-red-100 text-red-600'
-                                                        : 'text-slate-600 border border-slate-200 hover:bg-slate-100'
+                                            ? 'bg-purple-100 text-purple-600'
+                                            : stegoStatus === 'success'
+                                                ? 'bg-emerald-100 text-emerald-600'
+                                                : stegoStatus === 'error'
+                                                    ? 'bg-red-100 text-red-600'
+                                                    : 'text-slate-600 border border-slate-200 hover:bg-slate-100'
                                             }`}>
                                             {stegoStatus === 'importing' ? 'Extracting hidden data...'
                                                 : stegoStatus === 'success' ? '✓ Restored successfully!'

@@ -81,7 +81,7 @@ export const DuplicateFinder: React.FC<DuplicateFinderProps> = ({
                         </div>
                         <div>
                             <h2 className="text-lg font-bold text-white">Find Duplicates</h2>
-                            <p className="text-amber-100 text-sm">SimHash content fingerprinting</p>
+                            <p className="text-amber-100 text-sm">Detect similar bookmarks</p>
                         </div>
                     </div>
                     <button
@@ -97,7 +97,7 @@ export const DuplicateFinder: React.FC<DuplicateFinderProps> = ({
                         <div className="flex flex-col items-center justify-center py-12">
                             <Loader className="animate-spin text-amber-500 mb-4" size={40} />
                             <p className="text-slate-600 font-medium">Scanning {bookmarks.length} bookmarks...</p>
-                            <p className="text-sm text-slate-500 mt-1">Using 64-bit SimHash fingerprinting</p>
+                            <p className="text-sm text-slate-500 mt-1">Analyzing content similarity...</p>
                         </div>
                     ) : unresolvedDuplicates.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-12">
@@ -132,8 +132,8 @@ export const DuplicateFinder: React.FC<DuplicateFinderProps> = ({
                                     {/* Similarity Badge */}
                                     <div className="flex items-center justify-between mb-3">
                                         <span className={`px-2 py-1 rounded text-xs font-semibold ${pair.similarity >= 95
-                                                ? 'bg-red-100 text-red-700'
-                                                : 'bg-amber-100 text-amber-700'
+                                            ? 'bg-red-100 text-red-700'
+                                            : 'bg-amber-100 text-amber-700'
                                             }`}>
                                             {pair.similarity}% Similar
                                         </span>

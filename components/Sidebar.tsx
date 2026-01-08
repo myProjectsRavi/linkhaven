@@ -99,9 +99,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const browserImportRef = useRef<HTMLInputElement>(null);
 
-  // Collapsible sections
-  const [foldersOpen, setFoldersOpen] = useState(true);
-  const [notebooksOpen, setNotebooksOpen] = useState(true);
+  // Collapsible sections - collapsed by default for cleaner UI
+  const [foldersOpen, setFoldersOpen] = useState(false);
+  const [notebooksOpen, setNotebooksOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -296,89 +296,115 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </ul>
         </div>
 
-        {/* Folders Section */}
+        {/* Folders Section - Collapsible */}
         <div>
-          <div className="flex items-center justify-between mb-3 px-2">
-            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Folders</h3>
+          <button
+            onClick={() => setFoldersOpen(!foldersOpen)}
+            className="w-full flex items-center justify-between mb-2 px-2 py-1 hover:bg-slate-800/50 rounded-lg transition-colors group"
+          >
+            <div className="flex items-center gap-2">
+              {foldersOpen ? (
+                <ChevronDown size={14} className="text-slate-500" />
+              ) : (
+                <ChevronRight size={14} className="text-slate-500" />
+              )}
+              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Folders</h3>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500">{rootFolders.length}</span>
+            </div>
             <button
-              onClick={onAddFolder}
-              className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-indigo-400 transition-colors"
+              onClick={(e) => { e.stopPropagation(); onAddFolder(); }}
+              className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-indigo-400 transition-colors opacity-0 group-hover:opacity-100"
               title="Add New Folder"
             >
               <Plus size={14} />
             </button>
-          </div>
+          </button>
 
-          <ul className="space-y-0.5">
-            {rootFolders.length === 0 && (
-              <li className="px-3 py-4 text-center border-2 border-dashed border-slate-800 rounded-lg">
-                <p className="text-xs text-slate-500">No folders yet</p>
-              </li>
-            )}
-            {rootFolders.map((folder) => (
-              <FolderTreeItem key={folder.id} folder={folder} />
-            ))}
-          </ul>
+          {foldersOpen && (
+            <ul className="space-y-0.5 animate-in fade-in slide-in-from-top-1 duration-200">
+              {rootFolders.length === 0 && (
+                <li className="px-3 py-4 text-center border-2 border-dashed border-slate-800 rounded-lg">
+                  <p className="text-xs text-slate-500">No folders yet</p>
+                </li>
+              )}
+              {rootFolders.map((folder) => (
+                <FolderTreeItem key={folder.id} folder={folder} />
+              ))}
+            </ul>
+          )}
         </div>
 
-        {/* Notebooks Section */}
+        {/* Notebooks Section - Collapsible */}
         {onSelectNotebook && (
           <div>
-            <div className="flex items-center justify-between mb-3 px-2">
-              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Notebooks</h3>
+            <button
+              onClick={() => setNotebooksOpen(!notebooksOpen)}
+              className="w-full flex items-center justify-between mb-2 px-2 py-1 hover:bg-slate-800/50 rounded-lg transition-colors group"
+            >
+              <div className="flex items-center gap-2">
+                {notebooksOpen ? (
+                  <ChevronDown size={14} className="text-slate-500" />
+                ) : (
+                  <ChevronRight size={14} className="text-slate-500" />
+                )}
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Notebooks</h3>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500">{notebooks.filter(n => !n.parentId).length}</span>
+              </div>
               <button
-                onClick={onAddNotebook}
-                className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-purple-400 transition-colors"
+                onClick={(e) => { e.stopPropagation(); onAddNotebook?.(); }}
+                className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-purple-400 transition-colors opacity-0 group-hover:opacity-100"
                 title="Add New Notebook"
               >
                 <Plus size={14} />
               </button>
-            </div>
+            </button>
 
-            <ul className="space-y-0.5">
-              {notebooks.filter(n => !n.parentId).length === 0 && (
-                <li className="px-3 py-4 text-center border-2 border-dashed border-slate-800 rounded-lg">
-                  <p className="text-xs text-slate-500">No notebooks yet</p>
-                </li>
-              )}
-              {notebooks.filter(n => !n.parentId).map((notebook) => {
-                const isActive = activeNotebookId === notebook.id;
-                const count = noteCounts[notebook.id] || 0;
-                return (
-                  <li key={notebook.id} className="relative group">
-                    <button
-                      onClick={() => onSelectNotebook(notebook.id)}
-                      className={`w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-colors duration-200 ${isActive
-                        ? 'bg-purple-500/10 text-purple-400 font-medium'
-                        : 'hover:bg-slate-800/50 hover:text-white'
-                        }`}
-                    >
-                      <div className="flex items-center gap-2 overflow-hidden">
-                        <BookOpen size={16} className={isActive ? 'text-purple-400' : 'text-slate-500 group-hover:text-slate-400'} />
-                        <span className="truncate">{notebook.name}</span>
-                      </div>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 ml-2 ${isActive ? 'bg-purple-500/20 text-purple-300' : 'bg-slate-800 text-slate-500'
-                        }`}>
-                        {count}
-                      </span>
-                    </button>
-                    {/* Delete Action */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (confirm(`Delete notebook "${notebook.name}"? This will delete all notes inside it.`)) {
-                          onDeleteNotebook?.(notebook.id);
-                        }
-                      }}
-                      className="absolute right-1 top-2 p-1 text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 shadow-sm rounded z-10"
-                      title="Delete Notebook"
-                    >
-                      <Trash2 size={12} />
-                    </button>
+            {notebooksOpen && (
+              <ul className="space-y-0.5 animate-in fade-in slide-in-from-top-1 duration-200">
+                {notebooks.filter(n => !n.parentId).length === 0 && (
+                  <li className="px-3 py-4 text-center border-2 border-dashed border-slate-800 rounded-lg">
+                    <p className="text-xs text-slate-500">No notebooks yet</p>
                   </li>
-                );
-              })}
-            </ul>
+                )}
+                {notebooks.filter(n => !n.parentId).map((notebook) => {
+                  const isActive = activeNotebookId === notebook.id;
+                  const count = noteCounts[notebook.id] || 0;
+                  return (
+                    <li key={notebook.id} className="relative group">
+                      <button
+                        onClick={() => onSelectNotebook(notebook.id)}
+                        className={`w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-colors duration-200 ${isActive
+                          ? 'bg-purple-500/10 text-purple-400 font-medium'
+                          : 'hover:bg-slate-800/50 hover:text-white'
+                          }`}
+                      >
+                        <div className="flex items-center gap-2 overflow-hidden">
+                          <BookOpen size={16} className={isActive ? 'text-purple-400' : 'text-slate-500 group-hover:text-slate-400'} />
+                          <span className="truncate">{notebook.name}</span>
+                        </div>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 ml-2 ${isActive ? 'bg-purple-500/20 text-purple-300' : 'bg-slate-800 text-slate-500'
+                          }`}>
+                          {count}
+                        </span>
+                      </button>
+                      {/* Delete Action */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm(`Delete notebook "${notebook.name}"? This will delete all notes inside it.`)) {
+                            onDeleteNotebook?.(notebook.id);
+                          }
+                        }}
+                        className="absolute right-1 top-2 p-1 text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 shadow-sm rounded z-10"
+                        title="Delete Notebook"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
         )}
 
@@ -497,8 +523,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 onClick={onShowBackupConfig}
                 className={`w-full flex items-center justify-between px-3 py-2.5 text-sm rounded-lg transition-all duration-200 ${backupEnabled
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
                   }`}
               >
                 <div className="flex items-center gap-3">
