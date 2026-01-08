@@ -21,9 +21,10 @@
 ## 2. Data Encryption at Rest
 
 ### Implementation
-- All bookmark and note data stored in localStorage
-- Data is protected by PIN-gated access
-- No plaintext credentials stored
+- All bookmark and note data stored in **IndexedDB** (not localStorage)
+- Data encrypted with **AES-256-GCM** before storage
+- Keys derived via PBKDF2 (600,000 iterations)
+- No plaintext credentials or data stored
 
 ---
 
@@ -213,6 +214,8 @@ Protection against coerced unlocking (border agents, abusive partners).
 | Session Management | ✅ | PIN-locked |
 | Steganography | ✅ | LSB encoding, AES-encrypted payload |
 | Duress PIN | ✅ | Empty vault under coercion |
+| Vault Storage | ✅ | IndexedDB + AES-256-GCM (Jan 2026 fix) |
+| Rich Snapshots | ✅ | Scripts stripped, no XSS vectors |
 
 ---
 

@@ -183,7 +183,24 @@ npm run build
 - [x] IndexedDB for unlimited storage
 - [x] Fuse.js for fuzzy search
 - [x] Memoized card components
+- [x] Native CompressionStream (gzip) for snapshots
+- [x] Rich Snapshots with Base64 image inlining
 - [ ] Virtual scrolling for 10,000+ items
 - [ ] Web Workers for encryption
 - [ ] Service Worker for offline
 
+---
+
+## 11. Rich Snapshot Compression
+
+### SingleFile-Like Capture (Jan 2026)
+
+| Feature | Implementation |
+|---------|----------------|
+| Compression | Native `CompressionStream` (gzip) with LZ fallback |
+| Images | Base64 inlining (up to 20 per page) |
+| CSS | Consolidated into single `<style>` block |
+| Security | All `<script>` tags stripped |
+| Storage | IndexedDB via idb-keyval |
+
+**Complexity**: O(n) where n = DOM nodes + images
