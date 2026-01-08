@@ -4,7 +4,7 @@
 
 const SALT_LENGTH = 16;
 const IV_LENGTH = 12;
-const ITERATIONS = 100000;
+const ITERATIONS = 600_000; // OWASP 2025 minimum for PBKDF2-HMAC-SHA256
 
 /**
  * Generate a random salt for key derivation

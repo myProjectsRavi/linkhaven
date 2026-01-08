@@ -79,7 +79,7 @@ ModalType    // Union of all modal identifiers (~25 types)
 Encryption Flow:
 1. User enters password (min 4 chars)
 2. Generate random salt (16 bytes) + IV (12 bytes)
-3. Derive key using PBKDF2 (100,000 iterations, SHA-256)
+3. Derive key using PBKDF2 (600,000 iterations, SHA-256)
 4. Encrypt note data with AES-256-GCM
 5. Combine: salt + iv + ciphertext → Base64
 

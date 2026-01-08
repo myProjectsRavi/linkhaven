@@ -34,7 +34,7 @@
 |-----------|-------|
 | Algorithm | AES-256-GCM |
 | Key Derivation | PBKDF2 |
-| PBKDF2 Iterations | 100,000 |
+| PBKDF2 Iterations | 600,000 (OWASP 2025) |
 | Hash Function | SHA-256 |
 | Salt Length | 16 bytes (random) |
 | IV Length | 12 bytes (random) |
@@ -52,7 +52,7 @@ const iv = crypto.getRandomValues(new Uint8Array(12));
 
 const keyMaterial = await crypto.subtle.importKey('raw', password, 'PBKDF2', false, ['deriveKey']);
 const key = await crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt, iterations: 600_000, hash: 'SHA-256' },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
     false,
