@@ -64,6 +64,11 @@ ModalType    // Union of all modal identifiers (~25 types)
 | Smart Auto-Backup | `BackupConfigModal.tsx` | 5-min auto-backup to user folder |
 | Smart Rules | `RulesManager.tsx` | Auto-tag/move based on URL patterns |
 | Citations | `CitationView.tsx` | Generate academic citations |
+| Privacy Audit | `PrivacyAuditModal.tsx` | GDPR compliance PDF generator |
+| Export as Book | `ExportAsBookModal.tsx` | ePub/PDF export of folders |
+| P2P Sync | `P2PSyncModal.tsx` | WebRTC device-to-device sync |
+| Enhanced Search | `EnhancedSearch.tsx` | MiniSearch full-text with autocomplete |
+| Folder Suggestions | `FolderSuggestions.tsx` | Naive Bayes auto-folder suggestions |
 
 ---
 

@@ -15,6 +15,22 @@
 
 import { Readability } from '@mozilla/readability';
 
+/**
+ * PRIVACY NOTICE: CORS Proxy Disclosure
+ * 
+ * Due to browser security restrictions (CORS), fetching external URLs
+ * requires routing through public proxy servers. This means:
+ * - The proxy operator can see the URL being fetched
+ * - This applies only to URL metadata fetching and snapshot capture
+ * - Your bookmark data itself is NEVER transmitted
+ * 
+ * For 100% privacy, use our Browser Extension (bypasses CORS entirely)
+ */
+export const CORS_PROXY_PRIVACY_WARNING =
+    'Note: To bypass browser CORS restrictions, URLs are fetched via public proxies. ' +
+    'The proxy can see the URL being accessed. Your bookmark data stays local. ' +
+    'For 100% privacy, use our Browser Extension.';
+
 // CORS proxy list with fallbacks
 // Ordered by reliability and speed
 const CORS_PROXIES = [

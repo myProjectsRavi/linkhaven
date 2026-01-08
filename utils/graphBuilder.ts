@@ -1,4 +1,5 @@
 import { Bookmark, Note, GraphNode, GraphEdge, KnowledgeGraphData } from '../types';
+import { SimHash64, hammingDistance, distanceToSimilarity, generateSimHash } from './simhash';
 
 /**
  * Builds a knowledge graph from bookmarks and notes
@@ -298,4 +299,112 @@ export function findBridges(data: KnowledgeGraphData): GraphNode[] {
     return data.nodes.filter(
         node => node.type === 'tag' && (tagNeighbors.get(node.id)?.size || 0) >= 3
     );
+}
+
+/**
+ * Add SimHash-based content similarity edges to the graph
+ * 
+ * FEATURE: "Discover hidden connections between your ideas"
+ * Uses SimHash fingerprints to find bookmarks with similar content
+ * even if they have no shared tags or domains.
+ * 
+ * ALGORITHM:
+ * 1. Generate SimHash for each bookmark's text content
+ * 2. Compare all pairs using Hamming distance
+ * 3. Add "similar_content" edge for pairs with distance <= threshold
+ * 
+ * COMPLEXITY: O(n²) comparison, but SimHash comparison is O(1) per pair
+ * For 1000 bookmarks: 500,000 comparisons × O(1) = still fast
+ * 
+ * VISUAL: Similar bookmarks cluster together in the graph
+ */
+export function addSimHashEdges(
+    data: KnowledgeGraphData,
+    bookmarks: Bookmark[],
+    snapshotContents?: Map<string, string>,
+    similarityThreshold: number = 10 // Hamming distance <= 10 = ~85% similar
+): KnowledgeGraphData {
+    const bookmarkNodes = data.nodes.filter(n => n.type === 'bookmark');
+
+    if (bookmarkNodes.length < 2) {
+        return data;
+    }
+
+    // Generate SimHash for each bookmark
+    const hashes = new Map<string, SimHash64>();
+
+    for (const bookmark of bookmarks) {
+        // Combine title, description, and snapshot content for fingerprinting
+        const textParts = [
+            bookmark.title || '',
+            bookmark.description || '',
+            ...(bookmark.tags || [])
+        ];
+
+        // Add snapshot content if available
+        if (snapshotContents?.has(bookmark.id)) {
+            textParts.push(snapshotContents.get(bookmark.id)!);
+        }
+
+        const text = textParts.join(' ');
+        if (text.trim()) {
+            hashes.set(bookmark.id, generateSimHash(text));
+        }
+    }
+
+    // Find similar pairs and create edges
+    const newEdges = [...data.edges];
+    const bookmarkIds = Array.from(hashes.keys());
+
+    for (let i = 0; i < bookmarkIds.length; i++) {
+        for (let j = i + 1; j < bookmarkIds.length; j++) {
+            const id1 = bookmarkIds[i];
+            const id2 = bookmarkIds[j];
+            const hash1 = hashes.get(id1)!;
+            const hash2 = hashes.get(id2)!;
+
+            const distance = hammingDistance(hash1, hash2);
+
+            if (distance <= similarityThreshold) {
+                const similarity = distanceToSimilarity(distance);
+
+                newEdges.push({
+                    source: `bookmark_${id1}`,
+                    target: `bookmark_${id2}`,
+                    // Weight based on similarity (higher = stronger attraction in layout)
+                    weight: similarity / 50, // Normalize to 0-2 range
+                    type: 'linked' // "Similar content" edge type
+                });
+            }
+        }
+    }
+
+    return {
+        nodes: data.nodes,
+        edges: newEdges
+    };
+}
+
+/**
+ * Build enhanced knowledge graph with SimHash similarity edges
+ * 
+ * Combines:
+ * 1. Tag-based connections
+ * 2. Domain-based connections
+ * 3. Content similarity connections (SimHash)
+ * 
+ * This provides a richer visualization of knowledge relationships.
+ */
+export function buildEnhancedKnowledgeGraph(
+    bookmarks: Bookmark[],
+    notes: Note[],
+    snapshotContents?: Map<string, string>
+): KnowledgeGraphData {
+    // Build base graph with tags and domains
+    let graph = buildKnowledgeGraph(bookmarks, notes);
+
+    // Add SimHash-based content similarity edges
+    graph = addSimHashEdges(graph, bookmarks, snapshotContents);
+
+    return graph;
 }

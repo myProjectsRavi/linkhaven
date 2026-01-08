@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import {
   Folder as FolderIcon, Layers, Plus, FolderOpen, Trash2, Download,
   UploadCloud, Database, Bookmark, Activity, FileUp, Zap,
-  Copy, Sparkles, Smartphone, FileText, BookOpen, Network, ChevronDown, ChevronRight, Crown, Ghost, Lock, Unlock, Cloud, Check
+  Copy, Sparkles, Smartphone, FileText, BookOpen, Network, ChevronDown, ChevronRight, Crown, Ghost, Lock, Unlock, Cloud, Check, Shield, Book, Wifi
 } from 'lucide-react';
 import { Folder, Notebook, MainView } from '../types';
 
@@ -51,6 +51,10 @@ interface SidebarProps {
   backupTimeSince?: string;
   backupStatus?: 'idle' | 'saving' | 'error' | 'success';
   onShowBackupConfig?: () => void;
+  // New Privacy Features
+  onShowPrivacyAudit?: () => void;
+  onShowExportAsBook?: () => void;
+  onShowP2PSync?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -98,6 +102,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   backupTimeSince = '',
   backupStatus = 'idle',
   onShowBackupConfig,
+  // New Privacy Features
+  onShowPrivacyAudit,
+  onShowExportAsBook,
+  onShowP2PSync,
 }) => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -507,6 +515,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 >
                   <Zap size={16} />
                   <span>Smart Rules</span>
+                </button>
+              )}
+              {onShowPrivacyAudit && (
+                <button
+                  onClick={onShowPrivacyAudit}
+                  className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition-colors"
+                >
+                  <Shield size={16} />
+                  <span>Privacy Audit</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 ml-auto">EU</span>
+                </button>
+              )}
+              {onShowExportAsBook && (
+                <button
+                  onClick={onShowExportAsBook}
+                  className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors"
+                >
+                  <Book size={16} />
+                  <span>Export as Book</span>
+                </button>
+              )}
+              {onShowP2PSync && (
+                <button
+                  onClick={onShowP2PSync}
+                  className="w-full flex items-center gap-3 px-3 py-2 text-sm text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/10 rounded-lg transition-colors"
+                >
+                  <Wifi size={16} />
+                  <span>P2P Sync</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400 ml-auto">NEW</span>
                 </button>
               )}
             </div>

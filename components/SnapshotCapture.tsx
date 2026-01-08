@@ -89,14 +89,31 @@ export const SnapshotCapture: React.FC<SnapshotCaptureProps> = ({
                 </ol>
             </div>
 
+            {/* CORS Privacy Warning */}
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
+                <div className="flex items-start gap-2 text-amber-800">
+                    <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+                    <div>
+                        <p className="font-medium">Privacy Note</p>
+                        <p className="text-amber-700 text-xs mt-1">
+                            If using auto-fetch, URLs are routed via public proxies (CORS bypass).
+                            The proxy can see the URL being accessed. <strong>Your bookmark data stays 100% local.</strong>
+                        </p>
+                        <p className="text-amber-600 text-xs mt-1">
+                            For complete privacy, paste HTML manually (no proxy needed) or use our Browser Extension.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
             {/* Snapshot Mode Toggle */}
             {supportsRichSnapshots() && (
                 <div className="flex gap-2">
                     <button
                         onClick={() => setUseRichSnapshot(true)}
                         className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all ${useRichSnapshot
-                                ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                                : 'border-slate-200 text-slate-500 hover:border-slate-300'
+                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                            : 'border-slate-200 text-slate-500 hover:border-slate-300'
                             }`}
                     >
                         <Monitor size={18} />
@@ -108,8 +125,8 @@ export const SnapshotCapture: React.FC<SnapshotCaptureProps> = ({
                     <button
                         onClick={() => setUseRichSnapshot(false)}
                         className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg border-2 transition-all ${!useRichSnapshot
-                                ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                                : 'border-slate-200 text-slate-500 hover:border-slate-300'
+                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                            : 'border-slate-200 text-slate-500 hover:border-slate-300'
                             }`}
                     >
                         <FileCode size={18} />

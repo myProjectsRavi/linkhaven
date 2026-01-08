@@ -113,6 +113,10 @@ export type ModalType =
   | 'RULES_BUILDER'
   | 'CITATION_VIEW'
   | 'DUPLICATE_FINDER'
+  // New Features (Privacy & Export)
+  | 'PRIVACY_AUDIT'
+  | 'P2P_SYNC'
+  | 'EXPORT_AS_BOOK'
   | null;
 
 // Main view types

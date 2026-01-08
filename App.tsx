@@ -26,6 +26,11 @@ import { CitationView } from './components/CitationView';
 import { DuplicateFinder } from './components/DuplicateFinder';
 import { VaultPinModal } from './components/VaultPinModal';
 import { BackupConfigModal } from './components/BackupConfigModal';
+import { PrivacyAuditModal } from './components/PrivacyAuditModal';
+import { FolderSuggestions } from './components/FolderSuggestions';
+import { ExportAsBookModal } from './components/ExportAsBookModal';
+import { EnhancedSearch } from './components/EnhancedSearch';
+import { P2PSyncModal } from './components/P2PSyncModal';
 import { useAutoBackup } from './hooks/useAutoBackup';
 import { parseImportFile } from './utils/importers';
 import { fetchUrlMetadata } from './utils/metadata';
@@ -1240,6 +1245,10 @@ function App() {
           backupTimeSince={autoBackup.getTimeSinceBackup()}
           backupStatus={autoBackup.backupStatus}
           onShowBackupConfig={() => setShowBackupModal(true)}
+          // Privacy Features
+          onShowPrivacyAudit={() => setModalType('PRIVACY_AUDIT')}
+          onShowExportAsBook={() => setModalType('EXPORT_AS_BOOK')}
+          onShowP2PSync={() => setModalType('P2P_SYNC')}
         />
       </div>
 
@@ -1273,18 +1282,22 @@ function App() {
           </div>
 
           <div className="flex items-center gap-3 w-full sm:w-auto">
-            <div className="relative group flex-1 sm:w-64">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Search size={16} className="text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
-              </div>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => { setSearchQuery(e.target.value); setActiveTag(''); }}
-                placeholder="Search... (Press / to focus)"
-                className="block w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-xl leading-5 bg-slate-50 text-slate-900 placeholder-slate-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all sm:text-sm"
-              />
-            </div>
+            {/* Enhanced Search with MiniSearch */}
+            <EnhancedSearch
+              bookmarks={bookmarks}
+              notes={notes}
+              onSelectBookmark={(bookmark) => {
+                openEditModal(bookmark);
+              }}
+              onSelectNote={(note) => {
+                setViewingNote(note);
+                setModalType('VIEW_NOTE');
+              }}
+              onSearchChange={(query) => {
+                setSearchQuery(query);
+                setActiveTag('');
+              }}
+            />
 
             {activeNotebookId ? (
               <div className="flex items-center gap-2">
@@ -1576,6 +1589,22 @@ function App() {
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Folder</label>
+
+            {/* Smart Folder Suggestions */}
+            {modalType === 'ADD_BOOKMARK' && newItemUrl && (
+              <div className="mb-2">
+                <FolderSuggestions
+                  url={newItemUrl}
+                  title={newItemName}
+                  description={newItemDescription}
+                  bookmarks={bookmarks}
+                  folders={folders}
+                  onSelectFolder={setSelectedFolderForAdd}
+                  selectedFolderId={selectedFolderForAdd}
+                />
+              </div>
+            )}
+
             <select
               value={selectedFolderForAdd}
               onChange={(e) => setSelectedFolderForAdd(e.target.value)}
@@ -1686,6 +1715,42 @@ function App() {
             showToast(msg, 'success');
           }}
           onClose={() => setModalType(null)}
+        />
+      </Modal>
+
+      {/* P2P Sync Modal (WebRTC) */}
+      <Modal
+        isOpen={modalType === 'P2P_SYNC'}
+        onClose={() => setModalType(null)}
+        title="📡 P2P Sync"
+        size="md"
+      >
+        <P2PSyncModal
+          folders={folders}
+          bookmarks={bookmarks}
+          notebooks={notebooks}
+          notes={notes}
+          vaultBookmarks={vaultBookmarks}
+          onImport={(data) => {
+            // Merge imported data (skip duplicates by ID)
+            const existingFolderIds = new Set(folders.map(f => f.id));
+            const existingBookmarkIds = new Set(bookmarks.map(b => b.id));
+            const existingNotebookIds = new Set(notebooks.map(n => n.id));
+            const existingNoteIds = new Set(notes.map(n => n.id));
+
+            const newFolders = data.folders.filter(f => !existingFolderIds.has(f.id));
+            const newBookmarks = data.bookmarks.filter(b => !existingBookmarkIds.has(b.id));
+            const newNotebooks = data.notebooks.filter(n => !existingNotebookIds.has(n.id));
+            const newNotes = data.notes.filter(n => !existingNoteIds.has(n.id));
+
+            if (newFolders.length > 0) setFolders([...folders, ...newFolders]);
+            if (newBookmarks.length > 0) setBookmarks([...bookmarks, ...newBookmarks]);
+            if (newNotebooks.length > 0) setNotebooks([...notebooks, ...newNotebooks]);
+            if (newNotes.length > 0) setNotes([...notes, ...newNotes]);
+          }}
+          onClose={() => setModalType(null)}
+          onSuccess={(msg) => showToast(msg, 'success')}
+          onError={(msg) => showToast(msg, 'error')}
         />
       </Modal>
 
@@ -2231,6 +2296,47 @@ function App() {
           }
         }}
       />
+
+      {/* Privacy Audit Modal */}
+      <Modal
+        isOpen={modalType === 'PRIVACY_AUDIT'}
+        onClose={() => setModalType(null)}
+        title="🛡️ Privacy Audit"
+        size="md"
+      >
+        <PrivacyAuditModal
+          bookmarkCount={bookmarks.length}
+          noteCount={notes.length}
+          snapshotCount={bookmarks.filter(b => b.snapshot).length}
+          vaultEnabled={hasVaultPin}
+          onClose={() => setModalType(null)}
+          onSuccess={() => {
+            showToast('Privacy Audit PDF downloaded!', 'success');
+            setModalType(null);
+          }}
+        />
+      </Modal>
+
+      {/* Export as Book Modal */}
+      <Modal
+        isOpen={modalType === 'EXPORT_AS_BOOK'}
+        onClose={() => setModalType(null)}
+        title="📚 Export as Book"
+        size="md"
+      >
+        <ExportAsBookModal
+          folders={folders}
+          bookmarks={bookmarks}
+          defaultFolderId={activeFolderId !== 'ALL' ? activeFolderId : undefined}
+          onClose={() => setModalType(null)}
+          onSuccess={(msg) => {
+            showToast(msg, 'success');
+          }}
+          onError={(msg) => {
+            showToast(msg, 'error');
+          }}
+        />
+      </Modal>
 
     </div>
   );

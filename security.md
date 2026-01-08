@@ -216,6 +216,12 @@ Protection against coerced unlocking (border agents, abusive partners).
 | Duress PIN | ✅ | Empty vault under coercion |
 | Vault Storage | ✅ | IndexedDB + AES-256-GCM (Jan 2026 fix) |
 | Rich Snapshots | ✅ | Scripts stripped, no XSS vectors |
+| Privacy Audit PDF | ✅ | EU GDPR compliance documentation |
+| Naive Bayes Classifier | ✅ | 100% client-side, no data transmitted |
+| Full-text Search | ✅ | MiniSearch, 100% offline |
+| P2P WebRTC Sync | ✅ | DTLS encrypted, no cloud servers |
+| Export as Book | ✅ | Client-side ePub/PDF generation |
+| Enhanced Search | ✅ | MiniSearch with fuzzy matching |
 
 ---
 
