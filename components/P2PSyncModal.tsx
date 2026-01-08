@@ -1,16 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { QrCode, Smartphone, Wifi, Check, X, Loader, Camera, Copy, ArrowRight, ArrowLeft } from 'lucide-react';
-import {
-    createP2PSession,
-    joinP2PSession,
-    completeP2PConnection,
-    sendP2PData,
-    encodeForQR,
-    decodeFromQR,
-    closeP2PSession,
-    P2PSyncSession,
-    P2PSyncEvent
-} from '../utils/p2pSync';
+import React, { useState, useEffect } from 'react';
+import { QrCode, Smartphone, Wifi, Check, X, Loader, Copy, Download, Upload, ArrowLeft } from 'lucide-react';
 import { Folder, Bookmark, Notebook, Note } from '../types';
 import QRCode from 'qrcode';
 
@@ -33,7 +22,146 @@ interface P2PSyncModalProps {
 }
 
 type SyncMode = 'select' | 'send' | 'receive';
-type SyncStep = 'generating' | 'show-qr' | 'scan-answer' | 'scanning' | 'show-answer' | 'connecting' | 'transferring' | 'complete' | 'error';
+
+// Compress data for smaller sync codes
+function compressData(data: string): string {
+    return btoa(unescape(encodeURIComponent(data)));
+}
+
+function decompressData(compressed: string): string {
+    return decodeURIComponent(escape(atob(compressed)));
+}
+
+// Generate sync code from data
+function generateSyncCode(
+    folders: Folder[],
+    bookmarks: Bookmark[],
+    notebooks: Notebook[],
+    notes: Note[],
+    vaultBookmarks: Bookmark[]
+): string {
+    const payload: any = {
+        v: 4, // version 4 for P2P sync
+        t: Date.now(),
+        f: folders.map(f => ({
+            i: f.id,
+            n: f.name,
+            p: f.parentId,
+            c: f.createdAt
+        })),
+        b: bookmarks.map(b => ({
+            i: b.id,
+            f: b.folderId,
+            t: b.title,
+            u: b.url,
+            d: b.description,
+            g: b.tags,
+            c: b.createdAt
+        }))
+    };
+
+    if (notebooks.length > 0) {
+        payload.nb = notebooks.map(n => ({
+            i: n.id,
+            n: n.name,
+            p: n.parentId,
+            c: n.createdAt
+        }));
+    }
+
+    if (notes.length > 0) {
+        payload.nt = notes.map(n => ({
+            i: n.id,
+            nb: n.notebookId,
+            t: n.title,
+            ct: n.content,
+            tg: n.tags,
+            c: n.createdAt,
+            u: n.updatedAt
+        }));
+    }
+
+    if (vaultBookmarks.length > 0) {
+        payload.vb = vaultBookmarks.map(b => ({
+            i: b.id,
+            f: b.folderId,
+            t: b.title,
+            u: b.url,
+            d: b.description,
+            g: b.tags,
+            c: b.createdAt
+        }));
+    }
+
+    return compressData(JSON.stringify(payload));
+}
+
+// Parse sync code back to data
+function parseSyncCode(code: string): {
+    folders: Folder[],
+    bookmarks: Bookmark[],
+    notebooks: Notebook[],
+    notes: Note[],
+    vaultBookmarks: Bookmark[]
+} | null {
+    try {
+        const json = decompressData(code.trim());
+        const payload = JSON.parse(json);
+
+        if (!payload.v || !payload.f || !payload.b) {
+            return null;
+        }
+
+        const folders: Folder[] = payload.f.map((f: any) => ({
+            id: f.i,
+            name: f.n,
+            parentId: f.p || null,
+            createdAt: f.c
+        }));
+
+        const bookmarks: Bookmark[] = payload.b.map((b: any) => ({
+            id: b.i,
+            folderId: b.f,
+            title: b.t,
+            url: b.u,
+            description: b.d || '',
+            tags: b.g || [],
+            createdAt: b.c
+        }));
+
+        const notebooks: Notebook[] = (payload.nb || []).map((n: any) => ({
+            id: n.i,
+            name: n.n,
+            parentId: n.p || null,
+            createdAt: n.c
+        }));
+
+        const notes: Note[] = (payload.nt || []).map((n: any) => ({
+            id: n.i,
+            notebookId: n.nb,
+            title: n.t,
+            content: n.ct,
+            tags: n.tg || [],
+            createdAt: n.c,
+            updatedAt: n.u
+        }));
+
+        const vaultBookmarks: Bookmark[] = (payload.vb || []).map((b: any) => ({
+            id: b.i,
+            folderId: b.f,
+            title: b.t,
+            url: b.u,
+            description: b.d || '',
+            tags: b.g || [],
+            createdAt: b.c
+        }));
+
+        return { folders, bookmarks, notebooks, notes, vaultBookmarks };
+    } catch (e) {
+        console.error('Failed to parse sync code:', e);
+        return null;
+    }
+}
 
 export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
     folders,
@@ -47,210 +175,93 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
     onError
 }) => {
     const [mode, setMode] = useState<SyncMode>('select');
-    const [step, setStep] = useState<SyncStep>('generating');
-    const [qrDataUrl, setQrDataUrl] = useState<string>('');
-    const [qrText, setQrText] = useState<string>('');
-    const [scannedData, setScannedData] = useState<string>('');
-    const [progress, setProgress] = useState(0);
-    const [error, setError] = useState<string>('');
-    const [session, setSession] = useState<P2PSyncSession | null>(null);
-    const [receivedData, setReceivedData] = useState<Uint8Array | null>(null);
+    const [syncCode, setSyncCode] = useState('');
+    const [inputCode, setInputCode] = useState('');
+    const [copied, setCopied] = useState(false);
+    const [isGenerating, setIsGenerating] = useState(false);
+    const [qrDataUrl, setQrDataUrl] = useState('');
 
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const streamRef = useRef<MediaStream | null>(null);
-
-    // Cleanup on unmount
+    // Generate sync code when entering send mode
     useEffect(() => {
-        return () => {
-            if (session) closeP2PSession(session);
-            if (streamRef.current) {
-                streamRef.current.getTracks().forEach(t => t.stop());
+        if (mode === 'send') {
+            setIsGenerating(true);
+            const code = generateSyncCode(folders, bookmarks, notebooks, notes, vaultBookmarks);
+            setSyncCode(code);
+
+            // Generate QR for small datasets only (< 2KB)
+            if (code.length < 2000) {
+                QRCode.toDataURL(code, {
+                    width: 256,
+                    margin: 2,
+                    color: { dark: '#1e293b', light: '#ffffff' }
+                }).then(url => {
+                    setQrDataUrl(url);
+                    setIsGenerating(false);
+                }).catch(() => {
+                    setIsGenerating(false);
+                });
+            } else {
+                setQrDataUrl(''); // Too large for QR
+                setIsGenerating(false);
             }
-        };
-    }, [session]);
-
-    // Event handler for P2P events
-    const handleP2PEvent = (event: P2PSyncEvent) => {
-        switch (event.type) {
-            case 'status-change':
-                console.log('P2P Status:', event.status);
-                break;
-            case 'connected':
-                setStep('transferring');
-                break;
-            case 'progress':
-                setProgress(event.percent);
-                break;
-            case 'data-received':
-                setReceivedData(event.data);
-                break;
-            case 'complete':
-                setStep('complete');
-                break;
-            case 'error':
-                setError(event.error);
-                setStep('error');
-                break;
         }
-    };
+    }, [mode, folders, bookmarks, notebooks, notes, vaultBookmarks]);
 
-    // Generate QR code image from data
-    const generateQRImage = async (data: string) => {
+    const handleCopy = async () => {
         try {
-            const url = await QRCode.toDataURL(data, {
-                width: 256,
-                margin: 2,
-                color: { dark: '#1e293b', light: '#ffffff' }
-            });
-            setQrDataUrl(url);
-            setQrText(data);
-        } catch (err) {
-            console.error('QR generation failed:', err);
-            setError('Failed to generate QR code');
-        }
-    };
-
-    // Start as sender (Device A)
-    const startAsSender = async () => {
-        setMode('send');
-        setStep('generating');
-
-        try {
-            const { session: newSession, offer } = await createP2PSession(handleP2PEvent);
-            setSession(newSession);
-
-            const qrData = encodeForQR(offer);
-            await generateQRImage(qrData);
-            setStep('show-qr');
-        } catch (err) {
-            console.error('Failed to create session:', err);
-            setError('Failed to create P2P session');
-            setStep('error');
-        }
-    };
-
-    // Start as receiver (Device B)
-    const startAsReceiver = async () => {
-        setMode('receive');
-        setStep('scanning');
-
-        // Start camera for QR scanning
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment' }
-            });
-            streamRef.current = stream;
-            if (videoRef.current) {
-                videoRef.current.srcObject = stream;
-                videoRef.current.play();
-            }
-            // Start scanning loop
-            scanQRFromVideo();
-        } catch (err) {
-            console.error('Camera access failed:', err);
-            setError('Camera access denied. Please paste the QR data manually.');
-        }
-    };
-
-    // Scan QR code from video feed
-    const scanQRFromVideo = () => {
-        // Use a library like jsQR for actual scanning
-        // For now, we'll use manual input as fallback
-    };
-
-    // Handle manual QR data input
-    const handleManualInput = async () => {
-        if (!scannedData.trim()) return;
-
-        try {
-            const offer = decodeFromQR(scannedData);
-            setStep('generating');
-
-            const { session: newSession, answer } = await joinP2PSession(offer, handleP2PEvent);
-            setSession(newSession);
-
-            const answerQR = encodeForQR(answer);
-            await generateQRImage(answerQR);
-            setStep('show-answer');
-        } catch (err) {
-            console.error('Failed to process QR:', err);
-            setError('Invalid QR data. Please try again.');
-        }
-    };
-
-    // Handle sender receiving answer
-    const handleAnswerInput = async () => {
-        if (!scannedData.trim() || !session) return;
-
-        try {
-            const answer = decodeFromQR(scannedData);
-            setStep('connecting');
-
-            await completeP2PConnection(session, answer, handleP2PEvent);
-
-            // Start data transfer
-            const exportData = {
-                folders,
-                bookmarks,
-                notebooks,
-                notes,
-                vaultBookmarks,
-                exportedAt: new Date().toISOString()
-            };
-            const jsonBytes = new TextEncoder().encode(JSON.stringify(exportData));
-
-            // Wait for connection to be ready
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            await sendP2PData(session, jsonBytes, handleP2PEvent);
-        } catch (err) {
-            console.error('Transfer failed:', err);
-            setError('Transfer failed. Please try again.');
-            setStep('error');
-        }
-    };
-
-    // Process received data
-    const processReceivedData = () => {
-        if (!receivedData) return;
-
-        try {
-            const jsonStr = new TextDecoder().decode(receivedData);
-            const data = JSON.parse(jsonStr);
-
-            onImport({
-                folders: data.folders || [],
-                bookmarks: data.bookmarks || [],
-                notebooks: data.notebooks || [],
-                notes: data.notes || [],
-                vaultBookmarks: data.vaultBookmarks
-            });
-
-            onSuccess(`Imported ${data.bookmarks?.length || 0} bookmarks from other device!`);
-            onClose();
-        } catch (err) {
-            console.error('Failed to process data:', err);
-            setError('Failed to process received data');
-        }
-    };
-
-    // Copy QR data to clipboard
-    const copyQRData = async () => {
-        try {
-            await navigator.clipboard.writeText(qrText);
-            onSuccess('QR data copied to clipboard!');
+            await navigator.clipboard.writeText(syncCode);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
         } catch {
-            onError('Failed to copy');
+            onError('Failed to copy to clipboard');
         }
     };
 
-    // Stop camera
-    const stopCamera = () => {
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach(t => t.stop());
-            streamRef.current = null;
+    const handleDownload = () => {
+        const blob = new Blob([syncCode], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `linkhaven-sync-${Date.now()}.txt`;
+        link.click();
+        URL.revokeObjectURL(url);
+        onSuccess('Sync file downloaded!');
+    };
+
+    const handleImport = () => {
+        const data = parseSyncCode(inputCode);
+        if (!data) {
+            onError('Invalid sync code. Make sure you copied the entire code.');
+            return;
         }
+
+        onImport({
+            folders: data.folders,
+            bookmarks: data.bookmarks,
+            notebooks: data.notebooks,
+            notes: data.notes,
+            vaultBookmarks: data.vaultBookmarks
+        });
+    };
+
+    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const text = event.target?.result as string;
+            setInputCode(text.trim());
+        };
+        reader.readAsText(file);
+    };
+
+    const dataStats = {
+        folders: folders.length,
+        bookmarks: bookmarks.length,
+        notebooks: notebooks.length,
+        notes: notes.length,
+        vault: vaultBookmarks.length
     };
 
     return (
@@ -261,8 +272,8 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
                     <Wifi size={24} className="text-white" />
                 </div>
                 <div>
-                    <h3 className="text-lg font-bold text-slate-800">P2P Air-Gap Sync</h3>
-                    <p className="text-sm text-slate-500">Sync devices without any cloud</p>
+                    <h3 className="text-lg font-bold text-slate-800">Device Sync</h3>
+                    <p className="text-sm text-slate-500">Transfer data between devices</p>
                 </div>
             </div>
 
@@ -270,244 +281,186 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
             {mode === 'select' && (
                 <div className="space-y-4">
                     <div className="bg-cyan-50 border border-cyan-100 rounded-lg p-4 text-sm text-cyan-800">
-                        <p className="font-medium">Zero-Cloud Sync</p>
+                        <p className="font-medium">Zero-Cloud Transfer</p>
                         <p className="text-cyan-600 mt-1">
-                            Transfer data directly between devices using WebRTC.
-                            No server ever sees your data.
+                            Copy a sync code to transfer your data. No server ever sees your data.
                         </p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                         <button
-                            onClick={startAsSender}
+                            onClick={() => setMode('send')}
                             className="flex flex-col items-center gap-3 p-6 border-2 border-slate-200 rounded-xl hover:border-cyan-500 hover:bg-cyan-50/50 transition-all group"
                         >
                             <div className="w-14 h-14 bg-cyan-100 rounded-xl flex items-center justify-center group-hover:bg-cyan-200 transition-colors">
-                                <QrCode size={28} className="text-cyan-600" />
+                                <Upload size={28} className="text-cyan-600" />
                             </div>
                             <div className="text-center">
                                 <div className="font-semibold text-slate-800">Send Data</div>
-                                <div className="text-xs text-slate-500 mt-1">Show QR code</div>
+                                <div className="text-xs text-slate-500 mt-1">Export sync code</div>
                             </div>
                         </button>
 
                         <button
-                            onClick={startAsReceiver}
+                            onClick={() => setMode('receive')}
                             className="flex flex-col items-center gap-3 p-6 border-2 border-slate-200 rounded-xl hover:border-cyan-500 hover:bg-cyan-50/50 transition-all group"
                         >
                             <div className="w-14 h-14 bg-cyan-100 rounded-xl flex items-center justify-center group-hover:bg-cyan-200 transition-colors">
-                                <Camera size={28} className="text-cyan-600" />
+                                <Download size={28} className="text-cyan-600" />
                             </div>
                             <div className="text-center">
                                 <div className="font-semibold text-slate-800">Receive Data</div>
-                                <div className="text-xs text-slate-500 mt-1">Scan QR code</div>
+                                <div className="text-xs text-slate-500 mt-1">Import sync code</div>
                             </div>
                         </button>
                     </div>
                 </div>
             )}
 
-            {/* Show QR Code (Sender) */}
-            {mode === 'send' && step === 'show-qr' && (
+            {/* Send Mode */}
+            {mode === 'send' && (
                 <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                        <div className="w-6 h-6 bg-cyan-500 text-white rounded-full flex items-center justify-center text-xs font-bold">1</div>
-                        <span>Show this QR code to the receiving device</span>
-                    </div>
-
-                    <div className="flex justify-center p-6 bg-white border border-slate-200 rounded-xl">
-                        {qrDataUrl ? (
-                            <img src={qrDataUrl} alt="QR Code" className="w-64 h-64" />
-                        ) : (
-                            <Loader size={32} className="animate-spin text-slate-400" />
-                        )}
-                    </div>
-
-                    <button
-                        onClick={copyQRData}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                    >
-                        <Copy size={16} />
-                        Copy QR Data (for manual entry)
-                    </button>
-
-                    <div className="border-t border-slate-100 pt-4">
-                        <div className="flex items-center gap-2 text-sm text-slate-600 mb-2">
-                            <div className="w-6 h-6 bg-slate-300 text-white rounded-full flex items-center justify-center text-xs font-bold">2</div>
-                            <span>Paste the answer from receiving device</span>
-                        </div>
-                        <textarea
-                            value={scannedData}
-                            onChange={(e) => setScannedData(e.target.value)}
-                            placeholder="Paste answer code here..."
-                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 outline-none h-20"
-                        />
-                        <button
-                            onClick={handleAnswerInput}
-                            disabled={!scannedData.trim()}
-                            className="mt-2 w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-300 rounded-lg transition-colors"
-                        >
-                            <ArrowRight size={16} />
-                            Complete Connection
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {/* Scanning / Manual Input (Receiver) */}
-            {mode === 'receive' && step === 'scanning' && (
-                <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                        <div className="w-6 h-6 bg-cyan-500 text-white rounded-full flex items-center justify-center text-xs font-bold">1</div>
-                        <span>Scan or paste the QR code from sending device</span>
-                    </div>
-
-                    {/* Camera view (if available) */}
-                    <div className="relative bg-slate-900 rounded-xl overflow-hidden aspect-video">
-                        <video ref={videoRef} className="w-full h-full object-cover" />
-                        <canvas ref={canvasRef} className="hidden" />
-                        <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="w-48 h-48 border-2 border-dashed border-white/50 rounded-xl" />
+                    {/* Data Summary */}
+                    <div className="bg-slate-50 rounded-lg p-3 text-sm">
+                        <div className="font-medium text-slate-700 mb-2">Data to sync:</div>
+                        <div className="flex flex-wrap gap-2">
+                            <span className="px-2 py-1 bg-white rounded border text-xs">
+                                📁 {dataStats.folders} folders
+                            </span>
+                            <span className="px-2 py-1 bg-white rounded border text-xs">
+                                🔖 {dataStats.bookmarks} bookmarks
+                            </span>
+                            {dataStats.notebooks > 0 && (
+                                <span className="px-2 py-1 bg-white rounded border text-xs">
+                                    📓 {dataStats.notebooks} notebooks
+                                </span>
+                            )}
+                            {dataStats.notes > 0 && (
+                                <span className="px-2 py-1 bg-white rounded border text-xs">
+                                    📝 {dataStats.notes} notes
+                                </span>
+                            )}
+                            {dataStats.vault > 0 && (
+                                <span className="px-2 py-1 bg-purple-100 rounded border border-purple-200 text-xs text-purple-700">
+                                    👻 {dataStats.vault} vault
+                                </span>
+                            )}
                         </div>
                     </div>
 
-                    <div className="text-center text-sm text-slate-500">
-                        — or paste manually —
-                    </div>
+                    {isGenerating ? (
+                        <div className="flex items-center justify-center py-8">
+                            <Loader size={32} className="animate-spin text-cyan-500" />
+                        </div>
+                    ) : (
+                        <>
+                            {/* QR Code (if small enough) */}
+                            {qrDataUrl && (
+                                <div className="flex justify-center p-4 bg-white border border-slate-200 rounded-xl">
+                                    <img src={qrDataUrl} alt="Sync QR Code" className="w-48 h-48" />
+                                </div>
+                            )}
 
-                    <textarea
-                        value={scannedData}
-                        onChange={(e) => setScannedData(e.target.value)}
-                        placeholder="Paste QR code data here..."
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 outline-none h-20"
-                    />
+                            {!qrDataUrl && (
+                                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                                    ⚠️ Data too large for QR code. Use the copy or download options below.
+                                </div>
+                            )}
 
-                    <button
-                        onClick={handleManualInput}
-                        disabled={!scannedData.trim()}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-300 rounded-lg transition-colors"
-                    >
-                        <ArrowRight size={16} />
-                        Process QR Data
-                    </button>
-                </div>
-            )}
-
-            {/* Show Answer QR (Receiver) */}
-            {mode === 'receive' && step === 'show-answer' && (
-                <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                        <div className="w-6 h-6 bg-cyan-500 text-white rounded-full flex items-center justify-center text-xs font-bold">2</div>
-                        <span>Show this answer to the sending device</span>
-                    </div>
-
-                    <div className="flex justify-center p-6 bg-white border border-slate-200 rounded-xl">
-                        {qrDataUrl ? (
-                            <img src={qrDataUrl} alt="Answer QR Code" className="w-64 h-64" />
-                        ) : (
-                            <Loader size={32} className="animate-spin text-slate-400" />
-                        )}
-                    </div>
-
-                    <button
-                        onClick={copyQRData}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                    >
-                        <Copy size={16} />
-                        Copy Answer Data
-                    </button>
-
-                    <div className="bg-slate-50 rounded-lg p-3 text-center text-sm text-slate-500">
-                        <Loader size={16} className="animate-spin inline mr-2" />
-                        Waiting for connection...
-                    </div>
-                </div>
-            )}
-
-            {/* Connecting */}
-            {step === 'connecting' && (
-                <div className="py-12 text-center">
-                    <Loader size={48} className="animate-spin text-cyan-500 mx-auto mb-4" />
-                    <p className="text-slate-600">Establishing P2P connection...</p>
-                </div>
-            )}
-
-            {/* Transferring */}
-            {step === 'transferring' && (
-                <div className="py-8 space-y-4">
-                    <div className="flex items-center justify-center gap-4">
-                        <Smartphone size={32} className="text-cyan-500" />
-                        <div className="flex items-center gap-1">
-                            {[...Array(3)].map((_, i) => (
-                                <div
-                                    key={i}
-                                    className="w-2 h-2 bg-cyan-500 rounded-full animate-pulse"
-                                    style={{ animationDelay: `${i * 200}ms` }}
+                            {/* Sync Code */}
+                            <div className="relative">
+                                <textarea
+                                    readOnly
+                                    value={syncCode}
+                                    className="w-full h-24 px-3 py-2 text-xs font-mono bg-slate-100 border border-slate-300 rounded-lg resize-none"
                                 />
-                            ))}
-                        </div>
-                        <Smartphone size={32} className="text-cyan-500" />
-                    </div>
+                                <div className="absolute top-2 right-2 flex gap-1">
+                                    <button
+                                        onClick={handleCopy}
+                                        className="p-1.5 bg-white rounded border hover:bg-slate-50 transition-colors"
+                                        title="Copy code"
+                                    >
+                                        {copied ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+                                    </button>
+                                </div>
+                            </div>
 
-                    <div className="text-center">
-                        <p className="text-slate-600 font-medium">Transferring data...</p>
-                        <p className="text-2xl font-bold text-cyan-600 mt-1">{progress}%</p>
-                    </div>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={handleCopy}
+                                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700 rounded-lg transition-colors"
+                                >
+                                    {copied ? <Check size={16} /> : <Copy size={16} />}
+                                    {copied ? 'Copied!' : 'Copy Code'}
+                                </button>
+                                <button
+                                    onClick={handleDownload}
+                                    className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                                >
+                                    <Download size={16} />
+                                    Download
+                                </button>
+                            </div>
 
-                    <div className="w-full bg-slate-200 rounded-full h-2">
-                        <div
-                            className="bg-cyan-500 h-2 rounded-full transition-all duration-300"
-                            style={{ width: `${progress}%` }}
-                        />
-                    </div>
-                </div>
-            )}
-
-            {/* Complete */}
-            {step === 'complete' && (
-                <div className="py-8 text-center space-y-4">
-                    <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto">
-                        <Check size={32} className="text-emerald-600" />
-                    </div>
-                    <p className="text-lg font-medium text-slate-800">Transfer Complete!</p>
-                    <p className="text-slate-500">Your data has been synced successfully.</p>
-
-                    {receivedData && (
-                        <button
-                            onClick={processReceivedData}
-                            className="px-6 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors"
-                        >
-                            Import Data
-                        </button>
+                            <p className="text-xs text-slate-500 text-center">
+                                Copy this code and paste it on your other device, or download as a file.
+                            </p>
+                        </>
                     )}
                 </div>
             )}
 
-            {/* Error */}
-            {step === 'error' && (
-                <div className="py-8 text-center space-y-4">
-                    <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto">
-                        <X size={32} className="text-red-600" />
+            {/* Receive Mode */}
+            {mode === 'receive' && (
+                <div className="space-y-4">
+                    <div className="text-sm text-slate-600">
+                        Paste the sync code from your other device, or upload a sync file.
                     </div>
-                    <p className="text-lg font-medium text-slate-800">Connection Failed</p>
-                    <p className="text-slate-500">{error}</p>
+
+                    <textarea
+                        value={inputCode}
+                        onChange={(e) => setInputCode(e.target.value)}
+                        placeholder="Paste sync code here..."
+                        className="w-full h-32 px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 outline-none resize-none"
+                    />
+
+                    <div className="flex items-center gap-2">
+                        <div className="flex-1 border-t border-slate-200"></div>
+                        <span className="text-xs text-slate-400">or</span>
+                        <div className="flex-1 border-t border-slate-200"></div>
+                    </div>
+
+                    <label className="flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer">
+                        <Upload size={16} />
+                        Upload Sync File
+                        <input
+                            type="file"
+                            accept=".txt"
+                            onChange={handleFileUpload}
+                            className="hidden"
+                        />
+                    </label>
+
                     <button
-                        onClick={() => { setMode('select'); setStep('generating'); setError(''); }}
-                        className="px-6 py-2 text-sm font-medium text-white bg-slate-600 hover:bg-slate-700 rounded-lg transition-colors"
+                        onClick={handleImport}
+                        disabled={!inputCode.trim()}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-lg transition-colors"
                     >
-                        Try Again
+                        <Download size={16} />
+                        Import Data
                     </button>
                 </div>
             )}
 
-            {/* Footer Actions */}
+            {/* Footer */}
             <div className="flex justify-between items-center pt-2 border-t border-slate-100">
                 <button
                     onClick={() => {
-                        stopCamera();
                         if (mode !== 'select') {
                             setMode('select');
-                            setStep('generating');
+                            setSyncCode('');
+                            setInputCode('');
+                            setQrDataUrl('');
                         } else {
                             onClose();
                         }
@@ -519,7 +472,7 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
                 </button>
 
                 <div className="text-xs text-slate-400">
-                    End-to-end encrypted • Zero cloud
+                    End-to-end • Zero cloud
                 </div>
             </div>
         </div>
