@@ -136,17 +136,83 @@ const handleKeyDown = (e: KeyboardEvent) => {
 
 ---
 
+## 9. Steganographic Backup (PRO)
+
+### Purpose
+Hide encrypted backup inside normal-looking PNG images for covert data transport.
+
+### Implementation
+- **Location**: `utils/steganography.ts`
+- **Algorithm**: LSB (Least Significant Bit) encoding
+- **Capacity**: ~375KB per 1024x1024 image
+
+### How It Works
+1. User's backup is encrypted with AES-256-GCM
+2. Encrypted bytes converted to bits
+3. Each bit embedded into LSB of R, G, B channels
+4. Magic header "LHST" identifies LinkHaven stego images
+5. Result: Visually identical image containing hidden data
+
+### Use Cases
+- Border crossings (data hidden in vacation photo)
+- Privacy-focused backup sharing
+- Corporate environments with monitoring
+
+### Security Properties
+- Encrypted data before embedding (AES-256-GCM)
+- No visual difference from original image
+- Magic header prevents false positives
+- Capacity validation prevents data truncation
+
+---
+
+## 10. Duress PIN / Panic Mode (PRO)
+
+### Purpose
+Protection against coerced unlocking (border agents, abusive partners).
+
+### Implementation
+- **Location**: `hooks/useGhostVault.ts`
+- **Algorithm**: Separate salt + PBKDF2 derivation
+- **Behavior**: Shows completely empty vault
+
+### How It Works
+1. User sets up "Duress PIN" (different from main/vault PIN)
+2. If forced to unlock at gunpoint/border/abuse situation
+3. User enters Duress PIN
+4. App shows EMPTY vault (no bookmarks, no notes)
+5. Real data remains hidden and inaccessible
+
+### Security Properties
+- Third independent key derivation
+- No indicator of panic mode activation
+- Real data cryptographically inaccessible
+- Indistinguishable from fresh install
+
+### Competitor Comparison
+| Product | Duress/Fake Vault |
+|---------|-------------------|
+| Bitwarden | ❌ (requested 5+ years) |
+| 1Password | ❌ |
+| LastPass | ❌ |
+| **LinkHaven** | ✅ |
+
+---
+
 ## Security Audit Checklist
 
 | Area | Status | Notes |
 |------|--------|-------|
 | PIN Storage | ✅ | SHA-256 hashed |
 | Note Encryption | ✅ | AES-256-GCM |
+| Key Derivation | ✅ | PBKDF2 600k iterations (OWASP 2025) |
 | Input Sanitization | ✅ | Tags sanitized |
 | XSS Prevention | ✅ | React escaping |
 | CSRF | N/A | No server |
 | SQL Injection | N/A | No database |
 | Session Management | ✅ | PIN-locked |
+| Steganography | ✅ | LSB encoding, AES-encrypted payload |
+| Duress PIN | ✅ | Empty vault under coercion |
 
 ---
 

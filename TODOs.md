@@ -1,3 +1,75 @@
+# LinkHaven Future Features - Implementation Guide
+
+---
+
+## 🔒 Pro Billing System (ON HOLD)
+
+> **Status**: Implementation ready, waiting for user base growth  
+> **Guide**: See [BILLING_SETUP.md](./BILLING_SETUP.md) for complete setup  
+> **Architecture**: Ed25519 signed license keys, zero database
+
+### Implementation Checklist
+
+- [ ] Create LemonSqueezy merchant account
+- [ ] Complete tax/VAT verification (required for EU sales)
+- [ ] Generate Ed25519 key pair:
+  ```bash
+  openssl genpkey -algorithm Ed25519 -out linkhaven_private.pem
+  openssl pkey -in linkhaven_private.pem -pubout -outform DER | base64
+  ```
+- [ ] Add private key to Vercel environment variables
+- [ ] Create `/api/generate-license.ts` edge function
+- [ ] Configure LemonSqueezy webhook → `https://linkhaven-beige.vercel.app/api/generate-license`
+- [ ] Replace `PUBLIC_KEY_BASE64` placeholder in `utils/license.ts`
+- [ ] Add license activation UI in Settings
+- [ ] Add Pro feature gating (check `isPro()` before premium features)
+- [ ] Create pricing page / upgrade prompts
+
+### Pricing Strategy
+| Tier | Price | Features |
+|------|-------|----------|
+| Free | $0 | Bookmarks, notes, sync codes, basic vault |
+| Pro | $24/year | Steganography, Duress PIN, Unlimited vault, Priority support |
+
+### Technical Details
+- **License Format**: `base64(payload).base64(ed25519_signature)`
+- **Validation**: 100% offline using hardcoded public key
+- **Expiry Handling**: Re-prompt on license expiry, allow 7-day grace
+- **Refund Risk**: Accept 1-2% abuse (cheaper than building sync server)
+
+---
+
+## 🖼️ Premium Features Implemented
+
+### Steganographic Backup ✅
+- **File**: `utils/steganography.ts`
+- **Status**: Core utility complete
+- **UI Integration**: Added to BackupConfigModal.tsx
+- **Functions**:
+  - `hideDataInImage()` - Embed encrypted backup in PNG
+  - `extractDataFromImage()` - Extract backup from stego image
+  - `calculateCapacity()` - Check image can hold data
+
+### Duress PIN (Panic Mode) ✅
+- **File**: `hooks/useGhostVault.ts`
+- **Status**: Core utility complete
+- **UI Integration**: Added to VaultPinModal.tsx
+- **Functions**:
+  - `setupDuressPin()` - Configure panic PIN
+  - `isDuressPin()` - Check if entered PIN triggers panic mode
+  - When triggered: Shows completely empty vault
+
+### License Key Validation ✅
+- **File**: `utils/license.ts`
+- **Status**: Complete, awaiting billing setup
+- **Functions**:
+  - `verifyLicenseKey()` - Validate Ed25519 signature
+  - `activateLicense()` - Store and activate Pro
+  - `isPro()` - Check Pro status
+  - `getDaysUntilExpiry()` - Renewal prompts
+
+---
+
 # LinkHaven Browser Extensions - Implementation Guide
 
 > **Status**: TODO - Future Premium Feature  

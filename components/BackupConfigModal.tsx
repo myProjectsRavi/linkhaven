@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from 'react';
-import { FolderOpen, Download, Upload, Check, AlertCircle, Clock, HardDrive, X } from 'lucide-react';
+import React, { useCallback, useState, useRef } from 'react';
+import { FolderOpen, Download, Upload, Check, AlertCircle, Clock, HardDrive, X, Image, EyeOff } from 'lucide-react';
 
 interface BackupConfigModalProps {
     isOpen: boolean;
@@ -18,6 +18,9 @@ interface BackupConfigModalProps {
     onDisableBackup: () => void;
     onRestoreFile: (file: File) => Promise<boolean>;
     getTimeSinceBackup: () => string;
+    // Steganography (Hidden Backup)
+    onExportToImage?: (carrierImage?: File) => Promise<void>;
+    onImportFromImage?: (stegoImage: File) => Promise<boolean>;
 }
 
 export const BackupConfigModal: React.FC<BackupConfigModalProps> = ({
@@ -34,9 +37,14 @@ export const BackupConfigModal: React.FC<BackupConfigModalProps> = ({
     onDisableBackup,
     onRestoreFile,
     getTimeSinceBackup,
+    onExportToImage,
+    onImportFromImage,
 }) => {
     const [isDragging, setIsDragging] = useState(false);
     const [restoreStatus, setRestoreStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+    const [stegoStatus, setStegoStatus] = useState<'idle' | 'exporting' | 'importing' | 'success' | 'error'>('idle');
+    const stegoInputRef = useRef<HTMLInputElement>(null);
+    const carrierInputRef = useRef<HTMLInputElement>(null);
 
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -74,6 +82,32 @@ export const BackupConfigModal: React.FC<BackupConfigModalProps> = ({
             }
         }
     }, [onRestoreFile, onClose]);
+
+    // Steganography handlers
+    const handleExportToImage = useCallback(async () => {
+        if (!onExportToImage) return;
+        setStegoStatus('exporting');
+        try {
+            const carrierFile = carrierInputRef.current?.files?.[0];
+            await onExportToImage(carrierFile);
+            setStegoStatus('success');
+            setTimeout(() => setStegoStatus('idle'), 2000);
+        } catch {
+            setStegoStatus('error');
+        }
+    }, [onExportToImage]);
+
+    const handleImportFromImage = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !onImportFromImage) return;
+
+        setStegoStatus('importing');
+        const success = await onImportFromImage(file);
+        setStegoStatus(success ? 'success' : 'error');
+        if (success) {
+            setTimeout(() => onClose(), 1500);
+        }
+    }, [onImportFromImage, onClose]);
 
     if (!isOpen) return null;
 
@@ -123,8 +157,8 @@ export const BackupConfigModal: React.FC<BackupConfigModalProps> = ({
                     {/* Current Status */}
                     {isSupported && (
                         <div className={`p-4 rounded-xl border-2 transition-all ${isEnabled && hasDirectoryAccess
-                                ? 'bg-emerald-50 border-emerald-200'
-                                : 'bg-slate-50 border-slate-200'
+                            ? 'bg-emerald-50 border-emerald-200'
+                            : 'bg-slate-50 border-slate-200'
                             }`}>
                             {isEnabled && hasDirectoryAccess ? (
                                 <div className="space-y-3">
@@ -201,12 +235,12 @@ export const BackupConfigModal: React.FC<BackupConfigModalProps> = ({
                         </h3>
                         <div
                             className={`p-6 border-2 border-dashed rounded-xl text-center transition-all ${isDragging
-                                    ? 'border-indigo-400 bg-indigo-50'
-                                    : restoreStatus === 'success'
-                                        ? 'border-emerald-400 bg-emerald-50'
-                                        : restoreStatus === 'error'
-                                            ? 'border-red-400 bg-red-50'
-                                            : 'border-slate-200 hover:border-slate-300'
+                                ? 'border-indigo-400 bg-indigo-50'
+                                : restoreStatus === 'success'
+                                    ? 'border-emerald-400 bg-emerald-50'
+                                    : restoreStatus === 'error'
+                                        ? 'border-red-400 bg-red-50'
+                                        : 'border-slate-200 hover:border-slate-300'
                                 }`}
                         >
                             {restoreStatus === 'loading' ? (
@@ -244,6 +278,84 @@ export const BackupConfigModal: React.FC<BackupConfigModalProps> = ({
                             )}
                         </div>
                     </div>
+
+                    {/* Steganography Section - Hidden Backup */}
+                    {(onExportToImage || onImportFromImage) && (
+                        <div className="border-t border-slate-100 pt-6">
+                            <h3 className="font-medium text-slate-700 mb-3 flex items-center gap-2">
+                                <EyeOff size={16} className="text-purple-500" />
+                                Hidden Backup
+                                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">PRO</span>
+                            </h3>
+                            <p className="text-xs text-slate-500 mb-4">
+                                Hide your encrypted backup inside a normal-looking image. Perfect for travel or privacy.
+                            </p>
+
+                            <div className="space-y-3">
+                                {/* Export to Image */}
+                                {onExportToImage && (
+                                    <div className="p-4 bg-purple-50 rounded-xl space-y-3">
+                                        <div className="flex items-center gap-2">
+                                            <Image size={16} className="text-purple-600" />
+                                            <span className="text-sm font-medium text-purple-800">Export to Image</span>
+                                        </div>
+                                        <p className="text-xs text-purple-600">
+                                            Your backup will be hidden inside a PNG image
+                                        </p>
+                                        <div className="flex gap-2">
+                                            <label className="flex-1 text-center px-3 py-2 text-xs font-medium text-purple-600 border border-purple-200 hover:bg-purple-100 rounded-lg cursor-pointer transition-colors">
+                                                Custom Image (optional)
+                                                <input
+                                                    ref={carrierInputRef}
+                                                    type="file"
+                                                    accept="image/png"
+                                                    className="hidden"
+                                                />
+                                            </label>
+                                            <button
+                                                onClick={handleExportToImage}
+                                                disabled={stegoStatus === 'exporting'}
+                                                className="flex-1 px-3 py-2 text-sm font-medium bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                                            >
+                                                {stegoStatus === 'exporting' ? 'Creating...' : 'Create Hidden Backup'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Import from Image */}
+                                {onImportFromImage && (
+                                    <div className="p-4 bg-slate-50 rounded-xl space-y-3">
+                                        <div className="flex items-center gap-2">
+                                            <Upload size={16} className="text-slate-600" />
+                                            <span className="text-sm font-medium text-slate-700">Restore from Image</span>
+                                        </div>
+                                        <label className={`block w-full text-center px-4 py-3 text-sm font-medium rounded-lg cursor-pointer transition-colors ${stegoStatus === 'importing'
+                                                ? 'bg-purple-100 text-purple-600'
+                                                : stegoStatus === 'success'
+                                                    ? 'bg-emerald-100 text-emerald-600'
+                                                    : stegoStatus === 'error'
+                                                        ? 'bg-red-100 text-red-600'
+                                                        : 'text-slate-600 border border-slate-200 hover:bg-slate-100'
+                                            }`}>
+                                            {stegoStatus === 'importing' ? 'Extracting hidden data...'
+                                                : stegoStatus === 'success' ? '✓ Restored successfully!'
+                                                    : stegoStatus === 'error' ? 'No hidden backup found'
+                                                        : 'Select Image with Hidden Backup'}
+                                            <input
+                                                ref={stegoInputRef}
+                                                type="file"
+                                                accept="image/png"
+                                                onChange={handleImportFromImage}
+                                                className="hidden"
+                                                disabled={stegoStatus === 'importing'}
+                                            />
+                                        </label>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Footer tip */}

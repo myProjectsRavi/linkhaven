@@ -1,18 +1,24 @@
 /**
  * VaultPinModal - PIN entry for Ghost Vault
  * 
- * Handles setting up vault PIN or entering existing PIN to access vault mode.
+ * Handles setting up vault PIN, duress PIN (panic mode), or entering existing PIN.
+ * 
+ * MODES:
+ * - setup: Create new vault PIN
+ * - unlock: Enter existing vault PIN  
+ * - duress: Set up panic PIN (shows empty vault when forced to unlock)
  */
 
 import React, { useState } from 'react';
-import { X, Ghost, ShieldCheck, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { X, Ghost, ShieldCheck, Eye, EyeOff, AlertCircle, AlertTriangle } from 'lucide-react';
 
 interface VaultPinModalProps {
     isOpen: boolean;
     onClose: () => void;
-    mode: 'setup' | 'unlock';
+    mode: 'setup' | 'unlock' | 'duress';
     onSetup: (pin: string) => Promise<void>;
     onUnlock: (pin: string) => Promise<boolean>;
+    onSetupDuress?: (pin: string) => Promise<void>;
 }
 
 export const VaultPinModal: React.FC<VaultPinModalProps> = ({
@@ -21,6 +27,7 @@ export const VaultPinModal: React.FC<VaultPinModalProps> = ({
     mode,
     onSetup,
     onUnlock,
+    onSetupDuress,
 }) => {
     const [pin, setPin] = useState('');
     const [confirmPin, setConfirmPin] = useState('');
@@ -50,6 +57,17 @@ export const VaultPinModal: React.FC<VaultPinModalProps> = ({
                 await onSetup(pin);
                 setPin('');
                 setConfirmPin('');
+            } else if (mode === 'duress') {
+                if (pin !== confirmPin) {
+                    setError('PINs do not match');
+                    setIsLoading(false);
+                    return;
+                }
+                if (onSetupDuress) {
+                    await onSetupDuress(pin);
+                }
+                setPin('');
+                setConfirmPin('');
             } else {
                 const success = await onUnlock(pin);
                 if (!success) {
@@ -71,17 +89,21 @@ export const VaultPinModal: React.FC<VaultPinModalProps> = ({
         >
             <div className="bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
                 {/* Header */}
-                <div className="bg-gradient-to-r from-purple-600 to-violet-600 px-6 py-4 flex items-center justify-between">
+                <div className={`px-6 py-4 flex items-center justify-between ${mode === 'duress' ? 'bg-gradient-to-r from-red-600 to-orange-600' : 'bg-gradient-to-r from-purple-600 to-violet-600'}`}>
                     <div className="flex items-center gap-3">
                         <div className="p-2 bg-white/20 rounded-lg">
-                            <Ghost size={20} className="text-white" />
+                            {mode === 'duress' ? <AlertTriangle size={20} className="text-white" /> : <Ghost size={20} className="text-white" />}
                         </div>
                         <div>
                             <h2 className="text-lg font-bold text-white">
-                                {mode === 'setup' ? 'Setup Ghost Vault' : 'Unlock Ghost Vault'}
+                                {mode === 'setup' ? 'Setup Ghost Vault'
+                                    : mode === 'duress' ? 'Setup Panic Mode'
+                                        : 'Unlock Ghost Vault'}
                             </h2>
-                            <p className="text-purple-100 text-sm">
-                                {mode === 'setup' ? 'Create a separate PIN for your vault' : 'Enter PIN to access hidden bookmarks'}
+                            <p className={`text-sm ${mode === 'duress' ? 'text-orange-100' : 'text-purple-100'}`}>
+                                {mode === 'setup' ? 'Create a separate PIN for your vault'
+                                    : mode === 'duress' ? 'PIN that shows empty vault under coercion'
+                                        : 'Enter PIN to access hidden bookmarks'}
                             </p>
                         </div>
                     </div>
@@ -94,14 +116,25 @@ export const VaultPinModal: React.FC<VaultPinModalProps> = ({
                 </div>
 
                 <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                    {/* Duress warning */}
+                    {mode === 'duress' && (
+                        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3">
+                            <p className="text-xs text-red-400 text-center">
+                                ⚠️ When this PIN is entered, LinkHaven will show a <strong>completely empty</strong> vault. Use this if forced to unlock at a border crossing or in an abusive situation.
+                            </p>
+                        </div>
+                    )}
+
                     {/* PIN Input */}
                     <div className="relative">
                         <input
                             type={showPin ? "text" : "password"}
                             value={pin}
                             onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                            placeholder={mode === 'setup' ? "Create vault PIN (min 4 digits)" : "Enter vault PIN"}
-                            className="w-full bg-slate-900/50 border border-slate-600 focus:border-purple-500 rounded-xl px-4 py-3 text-center text-white text-lg tracking-[0.3em] placeholder:tracking-normal placeholder:text-slate-500 placeholder:text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all pr-12"
+                            placeholder={mode === 'setup' ? "Create vault PIN (min 4 digits)"
+                                : mode === 'duress' ? "Create panic PIN (min 4 digits)"
+                                    : "Enter vault PIN"}
+                            className={`w-full bg-slate-900/50 border focus:border-purple-500 rounded-xl px-4 py-3 text-center text-white text-lg tracking-[0.3em] placeholder:tracking-normal placeholder:text-slate-500 placeholder:text-sm focus:outline-none focus:ring-2 transition-all pr-12 ${mode === 'duress' ? 'border-red-500/50 focus:border-red-500 focus:ring-red-500/20' : 'border-slate-600 focus:ring-purple-500/20'}`}
                             autoFocus
                             inputMode="numeric"
                         />
@@ -114,15 +147,15 @@ export const VaultPinModal: React.FC<VaultPinModalProps> = ({
                         </button>
                     </div>
 
-                    {/* Confirm PIN (setup only) */}
-                    {mode === 'setup' && (
+                    {/* Confirm PIN (setup and duress only) */}
+                    {(mode === 'setup' || mode === 'duress') && (
                         <div className="relative">
                             <input
                                 type={showPin ? "text" : "password"}
                                 value={confirmPin}
                                 onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                                placeholder="Confirm vault PIN"
-                                className="w-full bg-slate-900/50 border border-slate-600 focus:border-purple-500 rounded-xl px-4 py-3 text-center text-white text-lg tracking-[0.3em] placeholder:tracking-normal placeholder:text-slate-500 placeholder:text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-all"
+                                placeholder={mode === 'duress' ? "Confirm panic PIN" : "Confirm vault PIN"}
+                                className={`w-full bg-slate-900/50 border rounded-xl px-4 py-3 text-center text-white text-lg tracking-[0.3em] placeholder:tracking-normal placeholder:text-slate-500 placeholder:text-sm focus:outline-none focus:ring-2 transition-all ${mode === 'duress' ? 'border-red-500/50 focus:border-red-500 focus:ring-red-500/20' : 'border-slate-600 focus:border-purple-500 focus:ring-purple-500/20'}`}
                                 inputMode="numeric"
                             />
                         </div>
@@ -140,14 +173,20 @@ export const VaultPinModal: React.FC<VaultPinModalProps> = ({
                     <button
                         type="submit"
                         disabled={isLoading}
-                        className="w-full bg-purple-600 hover:bg-purple-500 disabled:bg-purple-800 text-white font-medium py-3 rounded-xl transition-all shadow-lg shadow-purple-500/20 flex items-center justify-center gap-2 active:scale-95"
+                        className={`w-full font-medium py-3 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 active:scale-95 ${mode === 'duress'
+                            ? 'bg-red-600 hover:bg-red-500 disabled:bg-red-800 text-white shadow-red-500/20'
+                            : 'bg-purple-600 hover:bg-purple-500 disabled:bg-purple-800 text-white shadow-purple-500/20'}`}
                     >
                         {isLoading ? (
                             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                         ) : (
                             <>
-                                <ShieldCheck size={18} />
-                                <span>{mode === 'setup' ? 'Create Vault' : 'Unlock Vault'}</span>
+                                {mode === 'duress' ? <AlertTriangle size={18} /> : <ShieldCheck size={18} />}
+                                <span>
+                                    {mode === 'setup' ? 'Create Vault'
+                                        : mode === 'duress' ? 'Enable Panic Mode'
+                                            : 'Unlock Vault'}
+                                </span>
                             </>
                         )}
                     </button>
@@ -155,6 +194,12 @@ export const VaultPinModal: React.FC<VaultPinModalProps> = ({
                     {mode === 'setup' && (
                         <p className="text-xs text-center text-slate-500">
                             🔒 Vault bookmarks are stored separately with their own encryption
+                        </p>
+                    )}
+
+                    {mode === 'duress' && (
+                        <p className="text-xs text-center text-red-400/70">
+                            🚨 No competitor offers this feature - you are protected
                         </p>
                     )}
                 </form>
