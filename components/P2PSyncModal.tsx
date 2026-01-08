@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { QrCode, Smartphone, Wifi, Check, X, Loader, Copy, Download, Upload, ArrowLeft } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Wifi, Check, X, Loader, Copy, Download, Upload, ArrowLeft, Camera, QrCode } from 'lucide-react';
 import { Folder, Bookmark, Notebook, Note } from '../types';
 import QRCode from 'qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 
 interface P2PSyncModalProps {
     folders: Folder[];
@@ -41,7 +42,7 @@ function generateSyncCode(
     vaultBookmarks: Bookmark[]
 ): string {
     const payload: any = {
-        v: 4, // version 4 for P2P sync
+        v: 4,
         t: Date.now(),
         f: folders.map(f => ({
             i: f.id,
@@ -180,6 +181,21 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
     const [copied, setCopied] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
     const [qrDataUrl, setQrDataUrl] = useState('');
+    const [isScanning, setIsScanning] = useState(false);
+    const [scanError, setScanError] = useState('');
+    const [qrTooLarge, setQrTooLarge] = useState(false);
+
+    const scannerRef = useRef<Html5Qrcode | null>(null);
+    const scannerContainerRef = useRef<HTMLDivElement>(null);
+
+    // Cleanup scanner on unmount
+    useEffect(() => {
+        return () => {
+            if (scannerRef.current) {
+                scannerRef.current.stop().catch(() => { });
+            }
+        };
+    }, []);
 
     // Generate sync code when entering send mode
     useEffect(() => {
@@ -188,11 +204,13 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
             const code = generateSyncCode(folders, bookmarks, notebooks, notes, vaultBookmarks);
             setSyncCode(code);
 
-            // Generate QR for small datasets only (< 2KB)
+            // QR codes work best under 2KB
             if (code.length < 2000) {
+                setQrTooLarge(false);
                 QRCode.toDataURL(code, {
-                    width: 256,
+                    width: 300,
                     margin: 2,
+                    errorCorrectionLevel: 'L', // Lower error correction = more data capacity
                     color: { dark: '#1e293b', light: '#ffffff' }
                 }).then(url => {
                     setQrDataUrl(url);
@@ -201,11 +219,71 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
                     setIsGenerating(false);
                 });
             } else {
-                setQrDataUrl(''); // Too large for QR
+                setQrTooLarge(true);
+                setQrDataUrl('');
                 setIsGenerating(false);
             }
         }
     }, [mode, folders, bookmarks, notebooks, notes, vaultBookmarks]);
+
+    // Start QR scanner
+    const startScanner = async () => {
+        setScanError('');
+        setIsScanning(true);
+
+        try {
+            const html5QrCode = new Html5Qrcode("qr-scanner-container");
+            scannerRef.current = html5QrCode;
+
+            await html5QrCode.start(
+                { facingMode: "environment" },
+                {
+                    fps: 10,
+                    qrbox: { width: 250, height: 250 }
+                },
+                (decodedText) => {
+                    // Successfully scanned
+                    html5QrCode.stop().catch(() => { });
+                    setIsScanning(false);
+                    handleScannedCode(decodedText);
+                },
+                () => {
+                    // Ignore parse errors during scanning
+                }
+            );
+        } catch (err) {
+            setIsScanning(false);
+            setScanError('Camera access denied. Please paste the code manually.');
+            console.error('Scanner error:', err);
+        }
+    };
+
+    // Stop scanner
+    const stopScanner = () => {
+        if (scannerRef.current) {
+            scannerRef.current.stop().catch(() => { });
+            scannerRef.current = null;
+        }
+        setIsScanning(false);
+    };
+
+    // Handle scanned code
+    const handleScannedCode = (code: string) => {
+        const data = parseSyncCode(code);
+        if (data) {
+            onImport({
+                folders: data.folders,
+                bookmarks: data.bookmarks,
+                notebooks: data.notebooks,
+                notes: data.notes,
+                vaultBookmarks: data.vaultBookmarks
+            });
+            onSuccess(`Imported ${data.bookmarks.length} bookmarks!`);
+            onClose();
+        } else {
+            setScanError('Invalid QR code. Not a LinkHaven sync code.');
+        }
+    };
 
     const handleCopy = async () => {
         try {
@@ -228,7 +306,7 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
         onSuccess('Sync file downloaded!');
     };
 
-    const handleImport = () => {
+    const handleManualImport = () => {
         const data = parseSyncCode(inputCode);
         if (!data) {
             onError('Invalid sync code. Make sure you copied the entire code.');
@@ -242,18 +320,8 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
             notes: data.notes,
             vaultBookmarks: data.vaultBookmarks
         });
-    };
-
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const text = event.target?.result as string;
-            setInputCode(text.trim());
-        };
-        reader.readAsText(file);
+        onSuccess(`Imported ${data.bookmarks.length} bookmarks!`);
+        onClose();
     };
 
     const dataStats = {
@@ -272,8 +340,8 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
                     <Wifi size={24} className="text-white" />
                 </div>
                 <div>
-                    <h3 className="text-lg font-bold text-slate-800">Device Sync</h3>
-                    <p className="text-sm text-slate-500">Transfer data between devices</p>
+                    <h3 className="text-lg font-bold text-slate-800">QR Sync</h3>
+                    <p className="text-sm text-slate-500">Scan to sync between devices</p>
                 </div>
             </div>
 
@@ -281,9 +349,9 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
             {mode === 'select' && (
                 <div className="space-y-4">
                     <div className="bg-cyan-50 border border-cyan-100 rounded-lg p-4 text-sm text-cyan-800">
-                        <p className="font-medium">Zero-Cloud Transfer</p>
+                        <p className="font-medium">📱 Quick QR Sync</p>
                         <p className="text-cyan-600 mt-1">
-                            Copy a sync code to transfer your data. No server ever sees your data.
+                            Show QR on one device, scan with the other. Zero cloud!
                         </p>
                     </div>
 
@@ -293,11 +361,11 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
                             className="flex flex-col items-center gap-3 p-6 border-2 border-slate-200 rounded-xl hover:border-cyan-500 hover:bg-cyan-50/50 transition-all group"
                         >
                             <div className="w-14 h-14 bg-cyan-100 rounded-xl flex items-center justify-center group-hover:bg-cyan-200 transition-colors">
-                                <Upload size={28} className="text-cyan-600" />
+                                <QrCode size={28} className="text-cyan-600" />
                             </div>
                             <div className="text-center">
-                                <div className="font-semibold text-slate-800">Send Data</div>
-                                <div className="text-xs text-slate-500 mt-1">Export sync code</div>
+                                <div className="font-semibold text-slate-800">Show QR</div>
+                                <div className="text-xs text-slate-500 mt-1">Display sync code</div>
                             </div>
                         </button>
 
@@ -306,23 +374,23 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
                             className="flex flex-col items-center gap-3 p-6 border-2 border-slate-200 rounded-xl hover:border-cyan-500 hover:bg-cyan-50/50 transition-all group"
                         >
                             <div className="w-14 h-14 bg-cyan-100 rounded-xl flex items-center justify-center group-hover:bg-cyan-200 transition-colors">
-                                <Download size={28} className="text-cyan-600" />
+                                <Camera size={28} className="text-cyan-600" />
                             </div>
                             <div className="text-center">
-                                <div className="font-semibold text-slate-800">Receive Data</div>
-                                <div className="text-xs text-slate-500 mt-1">Import sync code</div>
+                                <div className="font-semibold text-slate-800">Scan QR</div>
+                                <div className="text-xs text-slate-500 mt-1">Import from camera</div>
                             </div>
                         </button>
                     </div>
                 </div>
             )}
 
-            {/* Send Mode */}
+            {/* Send Mode - Show QR */}
             {mode === 'send' && (
                 <div className="space-y-4">
                     {/* Data Summary */}
                     <div className="bg-slate-50 rounded-lg p-3 text-sm">
-                        <div className="font-medium text-slate-700 mb-2">Data to sync:</div>
+                        <div className="font-medium text-slate-700 mb-2">Syncing:</div>
                         <div className="flex flex-wrap gap-2">
                             <span className="px-2 py-1 bg-white rounded border text-xs">
                                 📁 {dataStats.folders} folders
@@ -330,16 +398,6 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
                             <span className="px-2 py-1 bg-white rounded border text-xs">
                                 🔖 {dataStats.bookmarks} bookmarks
                             </span>
-                            {dataStats.notebooks > 0 && (
-                                <span className="px-2 py-1 bg-white rounded border text-xs">
-                                    📓 {dataStats.notebooks} notebooks
-                                </span>
-                            )}
-                            {dataStats.notes > 0 && (
-                                <span className="px-2 py-1 bg-white rounded border text-xs">
-                                    📝 {dataStats.notes} notes
-                                </span>
-                            )}
                             {dataStats.vault > 0 && (
                                 <span className="px-2 py-1 bg-purple-100 rounded border border-purple-200 text-xs text-purple-700">
                                     👻 {dataStats.vault} vault
@@ -349,106 +407,134 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
                     </div>
 
                     {isGenerating ? (
-                        <div className="flex items-center justify-center py-8">
-                            <Loader size={32} className="animate-spin text-cyan-500" />
+                        <div className="flex items-center justify-center py-12">
+                            <Loader size={40} className="animate-spin text-cyan-500" />
                         </div>
-                    ) : (
-                        <>
-                            {/* QR Code (if small enough) */}
-                            {qrDataUrl && (
-                                <div className="flex justify-center p-4 bg-white border border-slate-200 rounded-xl">
-                                    <img src={qrDataUrl} alt="Sync QR Code" className="w-48 h-48" />
-                                </div>
-                            )}
-
-                            {!qrDataUrl && (
-                                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-                                    ⚠️ Data too large for QR code. Use the copy or download options below.
-                                </div>
-                            )}
-
-                            {/* Sync Code */}
-                            <div className="relative">
-                                <textarea
-                                    readOnly
-                                    value={syncCode}
-                                    className="w-full h-24 px-3 py-2 text-xs font-mono bg-slate-100 border border-slate-300 rounded-lg resize-none"
-                                />
-                                <div className="absolute top-2 right-2 flex gap-1">
-                                    <button
-                                        onClick={handleCopy}
-                                        className="p-1.5 bg-white rounded border hover:bg-slate-50 transition-colors"
-                                        title="Copy code"
-                                    >
-                                        {copied ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
-                                    </button>
-                                </div>
+                    ) : qrTooLarge ? (
+                        <div className="space-y-4">
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+                                <p className="font-medium">⚠️ Data too large for QR</p>
+                                <p className="mt-1">You have too many bookmarks for a QR code. Copy the sync code instead.</p>
                             </div>
+
+                            <textarea
+                                readOnly
+                                value={syncCode}
+                                className="w-full h-24 px-3 py-2 text-xs font-mono bg-slate-100 border border-slate-300 rounded-lg resize-none"
+                            />
 
                             <div className="flex gap-2">
                                 <button
                                     onClick={handleCopy}
-                                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700 rounded-lg transition-colors"
+                                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700 rounded-lg"
                                 >
                                     {copied ? <Check size={16} /> : <Copy size={16} />}
                                     {copied ? 'Copied!' : 'Copy Code'}
                                 </button>
                                 <button
                                     onClick={handleDownload}
-                                    className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                                    className="flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg"
                                 >
                                     <Download size={16} />
-                                    Download
                                 </button>
                             </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            {/* QR Code Display */}
+                            <div className="flex justify-center p-6 bg-white border-2 border-slate-200 rounded-xl">
+                                <img src={qrDataUrl} alt="Sync QR Code" className="w-64 h-64" />
+                            </div>
 
-                            <p className="text-xs text-slate-500 text-center">
-                                Copy this code and paste it on your other device, or download as a file.
+                            <p className="text-center text-sm text-slate-600">
+                                📱 Scan this QR with your other device
                             </p>
-                        </>
+
+                            {/* Fallback options */}
+                            <details className="text-sm">
+                                <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
+                                    Can't scan? Copy code instead
+                                </summary>
+                                <div className="mt-3 space-y-2">
+                                    <textarea
+                                        readOnly
+                                        value={syncCode}
+                                        className="w-full h-16 px-3 py-2 text-xs font-mono bg-slate-100 border border-slate-300 rounded-lg resize-none"
+                                    />
+                                    <button
+                                        onClick={handleCopy}
+                                        className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg"
+                                    >
+                                        {copied ? <Check size={16} /> : <Copy size={16} />}
+                                        {copied ? 'Copied!' : 'Copy Code'}
+                                    </button>
+                                </div>
+                            </details>
+                        </div>
                     )}
                 </div>
             )}
 
-            {/* Receive Mode */}
+            {/* Receive Mode - Scan QR */}
             {mode === 'receive' && (
                 <div className="space-y-4">
-                    <div className="text-sm text-slate-600">
-                        Paste the sync code from your other device, or upload a sync file.
-                    </div>
+                    {isScanning ? (
+                        <div className="space-y-4">
+                            <div
+                                id="qr-scanner-container"
+                                ref={scannerContainerRef}
+                                className="w-full aspect-square bg-slate-900 rounded-xl overflow-hidden"
+                            />
+                            <button
+                                onClick={stopScanner}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg"
+                            >
+                                <X size={16} />
+                                Stop Scanning
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            {scanError && (
+                                <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+                                    {scanError}
+                                </div>
+                            )}
 
-                    <textarea
-                        value={inputCode}
-                        onChange={(e) => setInputCode(e.target.value)}
-                        placeholder="Paste sync code here..."
-                        className="w-full h-32 px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 outline-none resize-none"
-                    />
+                            <button
+                                onClick={startScanner}
+                                className="w-full flex flex-col items-center gap-3 p-8 border-2 border-dashed border-slate-300 rounded-xl hover:border-cyan-500 hover:bg-cyan-50/50 transition-all"
+                            >
+                                <Camera size={48} className="text-cyan-600" />
+                                <div className="text-center">
+                                    <div className="font-semibold text-slate-800">Start Camera</div>
+                                    <div className="text-xs text-slate-500 mt-1">Point at QR code to scan</div>
+                                </div>
+                            </button>
 
-                    <div className="flex items-center gap-2">
-                        <div className="flex-1 border-t border-slate-200"></div>
-                        <span className="text-xs text-slate-400">or</span>
-                        <div className="flex-1 border-t border-slate-200"></div>
-                    </div>
+                            <div className="flex items-center gap-2">
+                                <div className="flex-1 border-t border-slate-200"></div>
+                                <span className="text-xs text-slate-400">or paste code</span>
+                                <div className="flex-1 border-t border-slate-200"></div>
+                            </div>
 
-                    <label className="flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer">
-                        <Upload size={16} />
-                        Upload Sync File
-                        <input
-                            type="file"
-                            accept=".txt"
-                            onChange={handleFileUpload}
-                            className="hidden"
-                        />
-                    </label>
+                            <textarea
+                                value={inputCode}
+                                onChange={(e) => setInputCode(e.target.value)}
+                                placeholder="Paste sync code here..."
+                                className="w-full h-24 px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 outline-none resize-none"
+                            />
 
-                    <button
-                        onClick={handleImport}
-                        disabled={!inputCode.trim()}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-lg transition-colors"
-                    >
-                        <Download size={16} />
-                        Import Data
-                    </button>
+                            <button
+                                onClick={handleManualImport}
+                                disabled={!inputCode.trim()}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed rounded-lg transition-colors"
+                            >
+                                <Download size={16} />
+                                Import Data
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -456,11 +542,13 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
             <div className="flex justify-between items-center pt-2 border-t border-slate-100">
                 <button
                     onClick={() => {
+                        stopScanner();
                         if (mode !== 'select') {
                             setMode('select');
                             setSyncCode('');
                             setInputCode('');
                             setQrDataUrl('');
+                            setScanError('');
                         } else {
                             onClose();
                         }
@@ -472,10 +560,9 @@ export const P2PSyncModal: React.FC<P2PSyncModalProps> = ({
                 </button>
 
                 <div className="text-xs text-slate-400">
-                    End-to-end • Zero cloud
+                    Zero cloud • Direct transfer
                 </div>
             </div>
         </div>
     );
 };
-// Deployed at Thu Jan  8 08:15:57 PST 2026

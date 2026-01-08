@@ -13,6 +13,7 @@
     "@types/react-window": "^1.8.8",
     "epub-gen-memory": "^1.1.2",
     "fuse.js": "^7.1.0",
+    "html5-qrcode": "^2.3.8",
     "idb": "^8.0.3",
     "idb-keyval": "^6.2.2",
     "jspdf": "^4.0.0",
