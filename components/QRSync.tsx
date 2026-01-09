@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Smartphone, QrCode, Copy, Check, Upload, Download, AlertCircle } from 'lucide-react';
+import { Smartphone, QrCode, Copy, Check, Upload, Download, AlertCircle, Zap } from 'lucide-react';
 import { Folder, Bookmark, Notebook, Note } from '../types';
+import LZString from 'lz-string';
 
 interface QRSyncProps {
     folders: Folder[];
@@ -13,75 +14,93 @@ interface QRSyncProps {
     onClose: () => void;
 }
 
-// Simple compression for QR payload
+/**
+ * Ultra-compact compression for QR payload
+ * Uses LZ-String which achieves 50-70% compression on JSON
+ * Then uses Base64 for QR-safe encoding
+ */
 function compressData(data: string): string {
-    // Convert to base64 for QR safety
-    return btoa(encodeURIComponent(data));
+    // LZ-String compressToBase64 is optimized for this use case
+    // It's QR-safe AND much smaller than btoa(encodeURIComponent())
+    const compressed = LZString.compressToBase64(data);
+    return compressed || '';
 }
 
 function decompressData(compressed: string): string {
     try {
+        // First try LZ-String (new format)
+        const decompressed = LZString.decompressFromBase64(compressed);
+        if (decompressed) return decompressed;
+
+        // Fallback to old format for backward compatibility
         return decodeURIComponent(atob(compressed));
     } catch {
         return '';
     }
 }
 
-// Generate a simple shareable code (not actual QR, but text-based transfer)
+/**
+ * Generate ultra-compact sync code
+ * Optimizations:
+ * 1. Single-char keys (i, n, u, t, d, g, c, f)
+ * 2. Remove empty/null values
+ * 3. Omit timestamps if not critical
+ * 4. LZ-String compression (50-70% smaller)
+ */
 function generateSyncCode(folders: Folder[], bookmarks: Bookmark[], notebooks?: Notebook[], notes?: Note[], vaultBookmarks?: Bookmark[]): string {
+    // Build minimal payload - every byte counts!
     const payload: any = {
-        v: 3, // version 3 includes vault bookmarks
-        t: Date.now(),
-        f: folders.map(f => ({
-            i: f.id,
-            n: f.name,
-            p: f.parentId,
-            c: f.createdAt
-        })),
-        b: bookmarks.map(b => ({
-            i: b.id,
-            f: b.folderId,
-            t: b.title,
-            u: b.url,
-            d: b.description,
-            g: b.tags,
-            c: b.createdAt
-        }))
+        v: 4, // version 4 = LZ-String compressed
+        f: folders.map(f => {
+            const o: any = { i: f.id, n: f.name };
+            if (f.parentId) o.p = f.parentId;
+            return o;
+        }),
+        b: bookmarks.map(b => {
+            const o: any = {
+                i: b.id,
+                u: b.url,
+                t: b.title || '',
+            };
+            if (b.folderId && b.folderId !== 'default') o.f = b.folderId;
+            if (b.description) o.d = b.description;
+            if (b.tags && b.tags.length > 0) o.g = b.tags;
+            return o;
+        })
     };
 
-    // Add notebooks and notes if present
+    // Add notebooks only if present
     if (notebooks && notebooks.length > 0) {
-        payload.nb = notebooks.map(n => ({
-            i: n.id,
-            n: n.name,
-            p: n.parentId,
-            c: n.createdAt
-        }));
+        payload.nb = notebooks.map(n => {
+            const o: any = { i: n.id, n: n.name };
+            if (n.parentId) o.p = n.parentId;
+            return o;
+        });
     }
 
+    // Add notes (can be large, compress content)
     if (notes && notes.length > 0) {
-        payload.nt = notes.map(n => ({
-            i: n.id,
-            nb: n.notebookId,
-            t: n.title,
-            ct: n.content,
-            tg: n.tags,
-            c: n.createdAt,
-            u: n.updatedAt
-        }));
+        payload.nt = notes.map(n => {
+            const o: any = {
+                i: n.id,
+                nb: n.notebookId,
+                t: n.title,
+                ct: n.content
+            };
+            if (n.tags && n.tags.length > 0) o.tg = n.tags;
+            return o;
+        });
     }
 
-    // Add vault bookmarks if present (v3)
+    // Add vault bookmarks
     if (vaultBookmarks && vaultBookmarks.length > 0) {
-        payload.vb = vaultBookmarks.map(b => ({
-            i: b.id,
-            f: b.folderId,
-            t: b.title,
-            u: b.url,
-            d: b.description,
-            g: b.tags,
-            c: b.createdAt
-        }));
+        payload.vb = vaultBookmarks.map(b => {
+            const o: any = { i: b.id, u: b.url, t: b.title || '' };
+            if (b.folderId) o.f = b.folderId;
+            if (b.description) o.d = b.description;
+            if (b.tags && b.tags.length > 0) o.g = b.tags;
+            return o;
+        });
     }
 
     return compressData(JSON.stringify(payload));
@@ -91,27 +110,31 @@ function generateSyncCode(folders: Folder[], bookmarks: Bookmark[], notebooks?: 
 function parseSyncCode(code: string): { folders: Folder[], bookmarks: Bookmark[], notebooks: Notebook[], notes: Note[], vaultBookmarks: Bookmark[] } | null {
     try {
         const json = decompressData(code);
+        if (!json) return null;
+
         const payload = JSON.parse(json);
 
-        if (!payload.v || !payload.f || !payload.b) {
+        if (!payload.f || !payload.b) {
             return null;
         }
+
+        const now = Date.now();
 
         const folders: Folder[] = payload.f.map((f: any) => ({
             id: f.i,
             name: f.n,
             parentId: f.p || null,
-            createdAt: f.c
+            createdAt: f.c || now
         }));
 
         const bookmarks: Bookmark[] = payload.b.map((b: any) => ({
             id: b.i,
-            folderId: b.f,
-            title: b.t,
+            folderId: b.f || 'default',
+            title: b.t || '',
             url: b.u,
             description: b.d || '',
             tags: b.g || [],
-            createdAt: b.c
+            createdAt: b.c || now
         }));
 
         // Parse notebooks and notes (v2+)
@@ -119,7 +142,7 @@ function parseSyncCode(code: string): { folders: Folder[], bookmarks: Bookmark[]
             id: n.i,
             name: n.n,
             parentId: n.p || null,
-            createdAt: n.c
+            createdAt: n.c || now
         })) : [];
 
         const notes: Note[] = payload.nt ? payload.nt.map((n: any) => ({
@@ -128,23 +151,24 @@ function parseSyncCode(code: string): { folders: Folder[], bookmarks: Bookmark[]
             title: n.t,
             content: n.ct,
             tags: n.tg || [],
-            createdAt: n.c,
-            updatedAt: n.u
+            createdAt: n.c || now,
+            updatedAt: n.u || now
         })) : [];
 
         // Parse vault bookmarks (v3+)
         const vaultBookmarks: Bookmark[] = payload.vb ? payload.vb.map((b: any) => ({
             id: b.i,
-            folderId: b.f,
-            title: b.t,
+            folderId: b.f || 'default',
+            title: b.t || '',
             url: b.u,
             description: b.d || '',
             tags: b.g || [],
-            createdAt: b.c
+            createdAt: b.c || now
         })) : [];
 
         return { folders, bookmarks, notebooks, notes, vaultBookmarks };
-    } catch {
+    } catch (e) {
+        console.error('Failed to parse sync code:', e);
         return null;
     }
 }
