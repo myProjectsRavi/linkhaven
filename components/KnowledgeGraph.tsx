@@ -30,8 +30,15 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     // Build and layout graph - use Barnes-Hut for Galaxy Mode (better for 100+ nodes)
     const graphData = useMemo(() => {
         const raw = buildKnowledgeGraph(bookmarks, notes);
+        // Clear any existing positions to force fresh layout calculation
+        const resetGraph = {
+            nodes: raw.nodes.map(n => ({ ...n, x: undefined, y: undefined })),
+            edges: raw.edges
+        };
         const layoutFn = galaxyMode ? applyBarnesHutLayout : applyForceLayout;
-        return layoutFn(raw, dimensions.width, dimensions.height, galaxyMode ? 200 : 150);
+        // Galaxy mode: 60 iterations (converges faster with Barnes-Hut)
+        // Standard mode: 100 iterations  
+        return layoutFn(resetGraph, dimensions.width, dimensions.height, galaxyMode ? 60 : 100);
     }, [bookmarks, notes, dimensions, galaxyMode]);
 
     // Orphan nodes (no tags)

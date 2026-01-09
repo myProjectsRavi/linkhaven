@@ -341,32 +341,42 @@ function buildQuadTree(
 /**
  * Barnes-Hut force-directed layout
  * O(N log N) complexity for large graphs
+ * 
+ * PERFORMANCE FIX: Reduced iterations and added convergence detection
+ * to prevent main thread blocking on large graphs
  */
 export function applyBarnesHutLayout(
     data: KnowledgeGraphData,
     width: number,
     height: number,
-    iterations: number = 150
+    iterations: number = 80 // Reduced from 150 for better performance
 ): KnowledgeGraphData {
     if (data.nodes.length === 0) return data;
 
-    const nodes = data.nodes.map(n => ({
+    // Initialize with deterministic positions based on index for consistency
+    const nodes = data.nodes.map((n, idx) => ({
         ...n,
-        x: n.x ?? Math.random() * width,
-        y: n.y ?? Math.random() * height,
+        x: n.x ?? (width * 0.2 + (width * 0.6) * ((idx * 7919) % 1000) / 1000),
+        y: n.y ?? (height * 0.2 + (height * 0.6) * ((idx * 7907) % 1000) / 1000),
         vx: 0,
         vy: 0
     }));
 
     const nodeIndex = new Map(nodes.map((n, i) => [n.id, i]));
 
-    const k = Math.sqrt((width * height) / nodes.length) * 0.5;
-    const gravity = 0.08;
-    const attraction = 0.06;
-    const theta = 0.5; // Barnes-Hut approximation threshold
+    // Adjust parameters based on graph size for stability
+    const nodeCount = nodes.length;
+    const k = Math.sqrt((width * height) / nodeCount) * (nodeCount > 100 ? 0.6 : 0.5);
+    const gravity = nodeCount > 100 ? 0.12 : 0.08; // Stronger gravity for large graphs
+    const attraction = nodeCount > 100 ? 0.04 : 0.06;
+    const theta = nodeCount > 100 ? 0.7 : 0.5; // More approximation for large graphs
+
+    let prevTotalMovement = Infinity;
+    const convergenceThreshold = 0.5; // Stop early if movement is small
 
     for (let iter = 0; iter < iterations; iter++) {
         const temperature = Math.pow(1 - iter / iterations, 1.5);
+        let totalMovement = 0;
 
         // Build QuadTree for this iteration
         const tree = buildQuadTree(
@@ -413,13 +423,23 @@ export function applyBarnesHutLayout(
             node.vy += (cy - node.y!) * gravity * temperature;
         }
 
-        // Apply velocities with damping
+        // Apply velocities with damping and track movement
         for (const node of nodes) {
-            node.x = Math.max(30, Math.min(width - 30, node.x! + node.vx));
-            node.y = Math.max(30, Math.min(height - 30, node.y! + node.vy));
+            const oldX = node.x!;
+            const oldY = node.y!;
+            node.x = Math.max(30, Math.min(width - 30, oldX + node.vx));
+            node.y = Math.max(30, Math.min(height - 30, oldY + node.vy));
+            totalMovement += Math.abs(node.x - oldX) + Math.abs(node.y - oldY);
             node.vx *= 0.85;
             node.vy *= 0.85;
         }
+
+        // Early termination if converged (movement is decreasing and small)
+        if (totalMovement < convergenceThreshold * nodeCount &&
+            totalMovement >= prevTotalMovement * 0.99) {
+            break;
+        }
+        prevTotalMovement = totalMovement;
     }
 
     return {
