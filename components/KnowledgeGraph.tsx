@@ -28,13 +28,18 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({
     const NODE_LIMIT = 40; // Show top 40 most connected nodes by default
 
     // Build and layout graph
-    // Galaxy Mode: more iterations, spread-out layout for visualizing large graphs
-    const graphData = useMemo(() => {
-        const raw = buildKnowledgeGraph(bookmarks, notes);
-        // Always use force layout but with different iteration counts
-        // Galaxy mode uses more iterations for a more refined layout
-        const iterations = galaxyMode ? 120 : 80;
-        return applyForceLayout(raw, dimensions.width, dimensions.height, iterations);
+    // Use useEffect to defer calculation and avoid blocking during indexing
+    const [graphData, setGraphData] = useState<KnowledgeGraphData>({ nodes: [], edges: [] });
+
+    useEffect(() => {
+        // Defer layout calculation to next frame to avoid blocking
+        const timeoutId = setTimeout(() => {
+            const raw = buildKnowledgeGraph(bookmarks, notes);
+            const iterations = galaxyMode ? 120 : 80;
+            const layoutData = applyForceLayout(raw, dimensions.width, dimensions.height, iterations);
+            setGraphData(layoutData);
+        }, 0);
+        return () => clearTimeout(timeoutId);
     }, [bookmarks, notes, dimensions, galaxyMode]);
 
     // Orphan nodes (no tags)
