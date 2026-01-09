@@ -467,6 +467,47 @@ export async function createRichSnapshot(
     metaViewport.content = 'width=device-width, initial-scale=1';
     doc.head.appendChild(metaViewport);
 
+    // ======================== SECURITY: XSS Defense-in-Depth ========================
+    // Add CSP meta tag to prevent ANY script execution (browser enforced)
+    const cspMeta = doc.createElement('meta');
+    cspMeta.httpEquiv = 'Content-Security-Policy';
+    cspMeta.content = "script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';";
+    doc.head.insertBefore(cspMeta, doc.head.firstChild);
+
+    // Remove javascript: URLs (XSS vector)
+    doc.querySelectorAll('a[href^="javascript:"]').forEach(el => {
+        el.removeAttribute('href');
+    });
+
+    // Remove ALL event handlers (comprehensive list)
+    const eventAttrs = [
+        'onabort', 'onafterprint', 'onbeforeprint', 'onbeforeunload', 'onblur',
+        'oncanplay', 'oncanplaythrough', 'onchange', 'onclick', 'oncontextmenu',
+        'oncopy', 'oncuechange', 'oncut', 'ondblclick', 'ondrag', 'ondragend',
+        'ondragenter', 'ondragleave', 'ondragover', 'ondragstart', 'ondrop',
+        'ondurationchange', 'onemptied', 'onended', 'onerror', 'onfocus',
+        'onhashchange', 'oninput', 'oninvalid', 'onkeydown', 'onkeypress',
+        'onkeyup', 'onload', 'onloadeddata', 'onloadedmetadata', 'onloadstart',
+        'onmessage', 'onmousedown', 'onmousemove', 'onmouseout', 'onmouseover',
+        'onmouseup', 'onmousewheel', 'onoffline', 'ononline', 'onpagehide',
+        'onpageshow', 'onpaste', 'onpause', 'onplay', 'onplaying', 'onpopstate',
+        'onprogress', 'onratechange', 'onreset', 'onresize', 'onscroll',
+        'onsearch', 'onseeked', 'onseeking', 'onselect', 'onstalled', 'onstorage',
+        'onsubmit', 'onsuspend', 'ontimeupdate', 'ontoggle', 'onunload',
+        'onvolumechange', 'onwaiting', 'onwheel'
+    ];
+    const eventSelector = eventAttrs.map(attr => `[${attr}]`).join(', ');
+    doc.querySelectorAll(eventSelector).forEach(el => {
+        eventAttrs.forEach(attr => el.removeAttribute(attr));
+    });
+
+    // Remove dangerous meta tags (redirect attacks)
+    doc.querySelectorAll('meta[http-equiv="refresh"]').forEach(el => el.remove());
+
+    // Remove SVG scripts and foreignObject (XSS via SVG)
+    doc.querySelectorAll('svg script, svg foreignObject').forEach(el => el.remove());
+    // ======================== END SECURITY ========================
+
     // Add LinkHaven signature
     const comment = doc.createComment(
         ` LinkHaven Snapshot - Captured ${new Date().toISOString()} from ${url} `

@@ -28,7 +28,7 @@ async function generateSecureShareCode(note: Note, password: string): Promise<st
         {
             name: 'PBKDF2',
             salt: salt,
-            iterations: 100000,
+            iterations: 600_000, // OWASP 2025 minimum for PBKDF2-HMAC-SHA256
             hash: 'SHA-256'
         },
         keyMaterial,
@@ -87,7 +87,7 @@ export async function decryptSharedNote(code: string, password: string): Promise
             {
                 name: 'PBKDF2',
                 salt: salt,
-                iterations: 100000,
+                iterations: 600_000, // OWASP 2025 minimum for PBKDF2-HMAC-SHA256
                 hash: 'SHA-256'
             },
             keyMaterial,

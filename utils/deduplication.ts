@@ -1,8 +1,9 @@
 // LinkHaven - Fuzzy Deduplication
 // Finds duplicate/similar bookmarks using string similarity algorithms
-// Pure math: Levenshtein distance + Jaccard similarity
+// Optimized: Uses SimHash LSH for O(n) performance instead of O(n²)
 
 import { Bookmark } from '../types';
+import { generateSimHash, findSimilarPairs, distanceToSimilarity, type SimHash64 } from './simhash';
 
 /**
  * Calculate Levenshtein distance between two strings
@@ -204,35 +205,64 @@ export function findDuplicates(
         }
     }
 
-    // Step 4: Find similar titles across all remaining bookmarks
+    // Step 4: Find similar titles using SimHash LSH (O(n) instead of O(n²))
+    // This prevents browser freezing with 2000+ bookmarks
     const remaining = bookmarks.filter(b => !processed.has(b.id));
 
-    for (let i = 0; i < remaining.length; i++) {
-        if (processed.has(remaining[i].id)) continue;
+    if (remaining.length >= 2) {
+        // Generate SimHash for each remaining bookmark (combining title + normalized URL)
+        const hashes: SimHash64[] = remaining.map(b =>
+            generateSimHash(b.title + ' ' + normalizeUrl(b.url))
+        );
 
-        const titleGroup: Bookmark[] = [remaining[i]];
-        let maxSimilarity = 0;
+        // Find similar pairs using LSH bucketing (O(n) complexity)
+        // Hamming distance 6 ≈ 90% similarity
+        const similarPairs = findSimilarPairs(hashes, 6);
 
-        for (let j = i + 1; j < remaining.length; j++) {
-            if (processed.has(remaining[j].id)) continue;
+        // Build groups from pairs using Union-Find approach
+        const parent = new Map<number, number>();
+        const find = (x: number): number => {
+            if (!parent.has(x)) parent.set(x, x);
+            if (parent.get(x) !== x) parent.set(x, find(parent.get(x)!));
+            return parent.get(x)!;
+        };
+        const union = (x: number, y: number) => {
+            parent.set(find(x), find(y));
+        };
 
-            const titleSim = stringSimilarity(remaining[i].title, remaining[j].title);
-
-            if (titleSim >= titleThreshold) {
-                titleGroup.push(remaining[j]);
-                maxSimilarity = Math.max(maxSimilarity, titleSim);
-                processed.add(remaining[j].id);
-            }
+        // Union similar pairs
+        for (const pair of similarPairs) {
+            union(pair.i, pair.j);
         }
 
-        if (titleGroup.length > 1) {
-            groups.push({
-                id: `title_${remaining[i].id}`,
-                bookmarks: titleGroup,
-                similarity: maxSimilarity,
-                reason: 'similar_title'
-            });
-            processed.add(remaining[i].id);
+        // Group by root
+        const groupMap = new Map<number, { indices: number[]; maxSimilarity: number }>();
+        for (const pair of similarPairs) {
+            const root = find(pair.i);
+            if (!groupMap.has(root)) {
+                groupMap.set(root, { indices: [], maxSimilarity: 0 });
+            }
+            const group = groupMap.get(root)!;
+            if (!group.indices.includes(pair.i)) group.indices.push(pair.i);
+            if (!group.indices.includes(pair.j)) group.indices.push(pair.j);
+            group.maxSimilarity = Math.max(group.maxSimilarity, pair.similarity);
+        }
+
+        // Convert to DuplicateGroup format
+        for (const [_, { indices, maxSimilarity }] of groupMap) {
+            if (indices.length > 1) {
+                const groupBookmarks = indices.map(i => remaining[i]);
+                // Skip if any bookmark already processed
+                if (groupBookmarks.some(b => processed.has(b.id))) continue;
+
+                groups.push({
+                    id: `title_${groupBookmarks[0].id}`,
+                    bookmarks: groupBookmarks,
+                    similarity: maxSimilarity,
+                    reason: 'similar_title'
+                });
+                groupBookmarks.forEach(b => processed.add(b.id));
+            }
         }
     }
 
