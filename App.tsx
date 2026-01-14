@@ -2198,7 +2198,7 @@ function App() {
           return false;
         }}
         getTimeSinceBackup={autoBackup.getTimeSinceBackup}
-        onExportToImage={async (carrierFile) => {
+        onExportToImage={async (carrierFile, password) => {
           try {
             // Prepare backup data
             const backupData = {
@@ -2215,7 +2215,7 @@ function App() {
 
             // Encrypt the backup data
             const backupSalt = generateSalt();
-            const backupKey = await deriveKey('linkhaven_stego_key', backupSalt);
+            const backupKey = await deriveKey(password, backupSalt);
             const encryptedData = await encrypt(jsonStr, backupKey);
             const encryptedBytes = new TextEncoder().encode(encryptedData);
 
@@ -2255,7 +2255,7 @@ function App() {
             showToast('Failed to create hidden backup', 'error');
           }
         }}
-        onImportFromImage={async (stegoFile) => {
+        onImportFromImage={async (stegoFile, password) => {
           try {
             // Load the stego image
             const stegoCanvas = await loadImageToCanvas(stegoFile);
@@ -2273,7 +2273,7 @@ function App() {
             const encryptedStr = new TextDecoder().decode(encryptedBytes);
 
             // Decrypt
-            const backupKey = await deriveKey('linkhaven_stego_key', saltBytes);
+            const backupKey = await deriveKey(password, saltBytes);
             const decryptedStr = await decrypt(encryptedStr, backupKey);
             const data = JSON.parse(decryptedStr);
 

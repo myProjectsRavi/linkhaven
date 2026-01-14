@@ -19,8 +19,8 @@ interface BackupConfigModalProps {
     onRestoreFile: (file: File) => Promise<boolean>;
     getTimeSinceBackup: () => string;
     // Steganography (Hidden Backup)
-    onExportToImage?: (carrierImage?: File) => Promise<void>;
-    onImportFromImage?: (stegoImage: File) => Promise<boolean>;
+    onExportToImage?: (carrierImage: File | undefined, password: string) => Promise<void>;
+    onImportFromImage?: (stegoImage: File, password: string) => Promise<boolean>;
 }
 
 export const BackupConfigModal: React.FC<BackupConfigModalProps> = ({
@@ -43,6 +43,7 @@ export const BackupConfigModal: React.FC<BackupConfigModalProps> = ({
     const [isDragging, setIsDragging] = useState(false);
     const [restoreStatus, setRestoreStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
     const [stegoStatus, setStegoStatus] = useState<'idle' | 'exporting' | 'importing' | 'success' | 'error'>('idle');
+    const [stegoPassword, setStegoPassword] = useState('');
     const stegoInputRef = useRef<HTMLInputElement>(null);
     const carrierInputRef = useRef<HTMLInputElement>(null);
 
@@ -85,29 +86,29 @@ export const BackupConfigModal: React.FC<BackupConfigModalProps> = ({
 
     // Steganography handlers
     const handleExportToImage = useCallback(async () => {
-        if (!onExportToImage) return;
+        if (!onExportToImage || !stegoPassword) return;
         setStegoStatus('exporting');
         try {
             const carrierFile = carrierInputRef.current?.files?.[0];
-            await onExportToImage(carrierFile);
+            await onExportToImage(carrierFile, stegoPassword);
             setStegoStatus('success');
             setTimeout(() => setStegoStatus('idle'), 2000);
         } catch {
             setStegoStatus('error');
         }
-    }, [onExportToImage]);
+    }, [onExportToImage, stegoPassword]);
 
     const handleImportFromImage = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (!file || !onImportFromImage) return;
+        if (!file || !onImportFromImage || !stegoPassword) return;
 
         setStegoStatus('importing');
-        const success = await onImportFromImage(file);
+        const success = await onImportFromImage(file, stegoPassword);
         setStegoStatus(success ? 'success' : 'error');
         if (success) {
             setTimeout(() => onClose(), 1500);
         }
-    }, [onImportFromImage, onClose]);
+    }, [onImportFromImage, onClose, stegoPassword]);
 
     if (!isOpen) return null;
 
@@ -291,6 +292,22 @@ export const BackupConfigModal: React.FC<BackupConfigModalProps> = ({
                                 Hide your encrypted backup inside a normal-looking image. Perfect for travel or privacy.
                             </p>
 
+                            <div className="mb-4">
+                                <label className="block text-xs font-medium text-slate-700 mb-1">
+                                    Encryption Password (Required)
+                                </label>
+                                <input
+                                    type="password"
+                                    value={stegoPassword}
+                                    onChange={(e) => setStegoPassword(e.target.value)}
+                                    placeholder="Enter a strong password..."
+                                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all"
+                                />
+                                <p className="text-[10px] text-slate-500 mt-1">
+                                    This password is required to unlock the hidden data. Don't lose it!
+                                </p>
+                            </div>
+
                             <div className="space-y-3">
                                 {/* Export to Image */}
                                 {onExportToImage && (
@@ -314,8 +331,9 @@ export const BackupConfigModal: React.FC<BackupConfigModalProps> = ({
                                             </label>
                                             <button
                                                 onClick={handleExportToImage}
-                                                disabled={stegoStatus === 'exporting'}
-                                                className="flex-1 px-3 py-2 text-sm font-medium bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                                                disabled={stegoStatus === 'exporting' || !stegoPassword}
+                                                className="flex-1 px-3 py-2 text-sm font-medium bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                title={!stegoPassword ? "Enter a password first" : ""}
                                             >
                                                 {stegoStatus === 'exporting' ? 'Creating...' : 'Create Hidden Backup'}
                                             </button>
@@ -330,14 +348,19 @@ export const BackupConfigModal: React.FC<BackupConfigModalProps> = ({
                                             <Upload size={16} className="text-slate-600" />
                                             <span className="text-sm font-medium text-slate-700">Restore from Image</span>
                                         </div>
-                                        <label className={`block w-full text-center px-4 py-3 text-sm font-medium rounded-lg cursor-pointer transition-colors ${stegoStatus === 'importing'
-                                            ? 'bg-purple-100 text-purple-600'
-                                            : stegoStatus === 'success'
-                                                ? 'bg-emerald-100 text-emerald-600'
-                                                : stegoStatus === 'error'
-                                                    ? 'bg-red-100 text-red-600'
-                                                    : 'text-slate-600 border border-slate-200 hover:bg-slate-100'
-                                            }`}>
+                                        <label className={`block w-full text-center px-4 py-3 text-sm font-medium rounded-lg cursor-pointer transition-colors ${
+                                            !stegoPassword
+                                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                                : stegoStatus === 'importing'
+                                                    ? 'bg-purple-100 text-purple-600'
+                                                    : stegoStatus === 'success'
+                                                        ? 'bg-emerald-100 text-emerald-600'
+                                                        : stegoStatus === 'error'
+                                                            ? 'bg-red-100 text-red-600'
+                                                            : 'text-slate-600 border border-slate-200 hover:bg-slate-100'
+                                            }`}
+                                            title={!stegoPassword ? "Enter a password first" : ""}
+                                        >
                                             {stegoStatus === 'importing' ? 'Extracting hidden data...'
                                                 : stegoStatus === 'success' ? '✓ Restored successfully!'
                                                     : stegoStatus === 'error' ? 'No hidden backup found'
@@ -348,7 +371,7 @@ export const BackupConfigModal: React.FC<BackupConfigModalProps> = ({
                                                 accept="image/png"
                                                 onChange={handleImportFromImage}
                                                 className="hidden"
-                                                disabled={stegoStatus === 'importing'}
+                                                disabled={stegoStatus === 'importing' || !stegoPassword}
                                             />
                                         </label>
                                     </div>
